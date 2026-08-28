@@ -20,47 +20,47 @@ $total_posts = $query->found_posts;
 $total_pages = $query->max_num_pages;
 ?>
 
-<div class="tba-wrap">
-    <div class="tba-header">
-        <div class="tba-header-inner">
-            <div class="tba-logo">
-                <img src="<?php echo esc_url( TBA_PLUGIN_URL . 'admin/tools-by-aadi-by-aadi.png' ); ?>" alt="Logo" style="height:32px; width:auto; vertical-align:middle; margin-right:10px; border-radius:4px;">
-                <span class="tba-logo-badge">Tags Manager</span>
+<div class="sab-wrap">
+    <div class="sab-header">
+        <div class="sab-header-inner">
+            <div class="sab-logo">
+                <img src="<?php echo esc_url( SAB_PLUGIN_URL . 'admin/soniji-auto-blogging-by-aadi.png' ); ?>" alt="Logo" style="height:32px; width:auto; vertical-align:middle; margin-right:10px; border-radius:4px;">
+                <span class="sab-logo-badge">Tags Manager</span>
             </div>
-                        <div class="tba-header-nav">
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tools-by-aadi') ); ?>" class="tba-nav-link">Dashboard</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-generate') ); ?>" class="tba-nav-link">Generate Post</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-planner') ); ?>" class="tba-nav-link">Bulk Planner</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-scheduler') ); ?>" class="tba-nav-link">Scheduler</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-thumbnails') ); ?>" class="tba-nav-link">Thumbnail Tool</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-tags') ); ?>" class="tba-nav-link active">Tags Tool</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-translator') ); ?>" class="tba-nav-link">Translator</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-gsc') ); ?>" class="tba-nav-link">Indexing</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-rewriter') ); ?>" class="tba-nav-link">Rewriter</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-speed') ); ?>" class="tba-nav-link">Optimizer</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-sitemap') ); ?>" class="tba-nav-link">Sitemap</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-pages') ); ?>" class="tba-nav-link">Pages Generator</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-redirects') ); ?>" class="tba-nav-link">Redirect</a>
-        <a href="<?php echo esc_url( admin_url('admin.php?page=tba-randomizer') ); ?>" class="tba-nav-link">Date Randomizer</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-codes') ); ?>" class="tba-nav-link">Codes</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-settings') ); ?>" class="tba-nav-link">Settings</a>
+                        <div class="sab-header-nav">
+    <a href="<?php echo esc_url( admin_url('admin.php?page=soniji-auto-blogging') ); ?>" class="sab-nav-link">Dashboard</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-generate') ); ?>" class="sab-nav-link">Generate Post</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-planner') ); ?>" class="sab-nav-link">Bulk Planner</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-scheduler') ); ?>" class="sab-nav-link">Scheduler</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-thumbnails') ); ?>" class="sab-nav-link">Thumbnail Tool</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-tags') ); ?>" class="sab-nav-link active">Tags Tool</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-translator') ); ?>" class="sab-nav-link">Translator</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-gsc') ); ?>" class="sab-nav-link">Indexing</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-rewriter') ); ?>" class="sab-nav-link">Rewriter</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-speed') ); ?>" class="sab-nav-link">Optimizer</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-sitemap') ); ?>" class="sab-nav-link">Sitemap</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-pages') ); ?>" class="sab-nav-link">Pages Generator</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-redirects') ); ?>" class="sab-nav-link">Redirect</a>
+        <a href="<?php echo esc_url( admin_url('admin.php?page=sab-randomizer') ); ?>" class="sab-nav-link">Date Randomizer</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-codes') ); ?>" class="sab-nav-link">Codes</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-settings') ); ?>" class="sab-nav-link">Settings</a>
 </div>
         </div>
     </div>
 
-    <div class="tba-content">
-        <div class="tba-panel">
-            <div class="tba-panel-header">
-                <h2 class="tba-panel-title">🏷️ Manage Generated Post Tags (Showing <?php echo count($posts); ?> of <?php echo (int) $total_posts; ?>)</h2>
+    <div class="sab-content">
+        <div class="sab-panel">
+            <div class="sab-panel-header">
+                <h2 class="sab-panel-title">🏷️ Manage Generated Post Tags (Showing <?php echo count($posts); ?> of <?php echo (int) $total_posts; ?>)</h2>
             </div>
             
             <?php if ( empty($posts) ): ?>
-            <div class="tba-empty-state">No plugin-generated posts found. Generate some posts first!</div>
+            <div class="sab-empty-state">No plugin-generated posts found. Generate some posts first!</div>
             <?php else: ?>
             <!-- Bulk Actions Bar -->
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 0 15px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom:15px;">
                 <label style="font-size:12px; color:#94a3b8; font-weight:600;">🎯 Apply Tag Quantity to All Rows:</label>
-                <select id="tba-bulk-tag-qty" class="tba-select" style="width:auto; min-width:120px; font-size:12px; padding:6px 10px; height:32px; border-radius:6px;">
+                <select id="sab-bulk-tag-qty" class="sab-select" style="width:auto; min-width:120px; font-size:12px; padding:6px 10px; height:32px; border-radius:6px;">
                     <option value="3">3 Tags</option>
                     <option value="5" selected>5 Tags</option>
                     <option value="8">8 Tags</option>
@@ -68,11 +68,11 @@ $total_pages = $query->max_num_pages;
                     <option value="15">15 Tags</option>
                     <option value="20">20 Tags</option>
                 </select>
-                <button type="button" id="tba-btn-apply-tag-qty-all" class="tba-btn tba-btn-secondary tba-btn-small" style="font-weight:600; border-radius:6px; font-size:12px; padding:6px 12px; height:32px; cursor:pointer;">
+                <button type="button" id="sab-btn-apply-tag-qty-all" class="sab-btn sab-btn-secondary sab-btn-small" style="font-weight:600; border-radius:6px; font-size:12px; padding:6px 12px; height:32px; cursor:pointer;">
                     Apply to All
                 </button>
             </div>
-            <table class="tba-table" id="tba-tags-manager-table">
+            <table class="sab-table" id="sab-tags-manager-table">
                 <thead>
                     <tr>
                         <th width="80">Post ID</th>
@@ -86,19 +86,19 @@ $total_pages = $query->max_num_pages;
                     <?php foreach ( $posts as $p ): 
                         $tags_list = get_the_tags($p->ID);
                     ?>
-                    <tr id="tba-tags-row-<?php echo (int) $p->ID; ?>">
+                    <tr id="sab-tags-row-<?php echo (int) $p->ID; ?>">
                         <td><code>#<?php echo (int) $p->ID; ?></code></td>
                         <td>
-                            <a href="<?php echo esc_url( get_edit_post_link($p->ID) ); ?>" target="_blank" style="font-weight:600; color: var(--tba-text-dark);">
+                            <a href="<?php echo esc_url( get_edit_post_link($p->ID) ); ?>" target="_blank" style="font-weight:600; color: var(--sab-text-dark);">
                                 <?php echo esc_html($p->post_title); ?>
                             </a>
                         </td>
-                        <td class="tba-tags-list-cell" style="vertical-align: middle;">
+                        <td class="sab-tags-list-cell" style="vertical-align: middle;">
                             <?php if ( ! empty($tags_list) ): ?>
-                                <button type="button" class="tba-btn tba-btn-secondary tba-btn-small" style="padding:4px 8px; font-size:11px; font-weight:600; margin-bottom:5px; border-radius:4px;" onclick="jQuery('#tba-tags-container-<?php echo (int) $p->ID; ?>').toggle(); var t = jQuery(this).text() === '👁️ Show Tags' ? '🙈 Hide Tags' : '👁️ Show Tags'; jQuery(this).text(t);">👁️ Show Tags</button>
-                                <div class="tba-tags-container" id="tba-tags-container-<?php echo (int) $p->ID; ?>" style="display:none; flex-wrap:wrap; gap:5px; margin-top:5px;">
+                                <button type="button" class="sab-btn sab-btn-secondary sab-btn-small" style="padding:4px 8px; font-size:11px; font-weight:600; margin-bottom:5px; border-radius:4px;" onclick="jQuery('#sab-tags-container-<?php echo (int) $p->ID; ?>').toggle(); var t = jQuery(this).text() === '👁️ Show Tags' ? '🙈 Hide Tags' : '👁️ Show Tags'; jQuery(this).text(t);">👁️ Show Tags</button>
+                                <div class="sab-tags-container" id="sab-tags-container-<?php echo (int) $p->ID; ?>" style="display:none; flex-wrap:wrap; gap:5px; margin-top:5px;">
                                     <?php foreach ( $tags_list as $t ): ?>
-                                        <span class="tba-status-badge" style="background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.15); color:#6366f1; font-size:10px; font-weight:600; padding:2px 6px; border-radius:4px;">
+                                        <span class="sab-status-badge" style="background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.15); color:#6366f1; font-size:10px; font-weight:600; padding:2px 6px; border-radius:4px;">
                                             #<?php echo esc_html($t->name); ?>
                                         </span>
                                     <?php endforeach; ?>
@@ -108,7 +108,7 @@ $total_pages = $query->max_num_pages;
                             <?php endif; ?>
                         </td>
                         <td>
-                            <select class="tba-select tba-tag-qty-select" style="min-width:70px; height:34px; font-size:12px; padding:4px 8px; border-radius:6px;">
+                            <select class="sab-select sab-tag-qty-select" style="min-width:70px; height:34px; font-size:12px; padding:4px 8px; border-radius:6px;">
                                 <option value="3">3 Tags</option>
                                 <option value="5" selected>5 Tags</option>
                                 <option value="8">8 Tags</option>
@@ -118,7 +118,7 @@ $total_pages = $query->max_num_pages;
                             </select>
                         </td>
                         <td>
-                            <button type="button" class="tba-btn tba-btn-primary tba-btn-small tba-btn-gen-tags" data-post-id="<?php echo (int) $p->ID; ?>" style="background: #4f46e5; border-color: #4f46e5; color: #fff; width:100%; display:block; text-align:center; height:34px; font-weight:600; border-radius:6px;">
+                            <button type="button" class="sab-btn sab-btn-primary sab-btn-small sab-btn-gen-tags" data-post-id="<?php echo (int) $p->ID; ?>" style="background: #4f46e5; border-color: #4f46e5; color: #fff; width:100%; display:block; text-align:center; height:34px; font-weight:600; border-radius:6px;">
                                 ⚡ Generate Tags
                             </button>
                         </td>
@@ -129,7 +129,7 @@ $total_pages = $query->max_num_pages;
 
             <!-- Pagination Links -->
             <?php if ( $total_pages > 1 ): ?>
-            <div class="tba-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;">
+            <div class="sab-pagination" style="display:flex; justify-content:center; gap:5px; margin-top:20px;">
                 <?php echo wp_kses_post( paginate_links([
                     'base'     => add_query_arg( 'paged', '%#%' ),
                     'format'   => '',
