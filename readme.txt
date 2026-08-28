@@ -1,5 +1,5 @@
-=== Tools By Aadi ===
-Contributors: Anand Soni, Aadi
+=== Soniji Auto Blogging ===
+Contributors: anandsoni
 Tags: ai, gemini, auto-post, seo, content-generator
 Requires at least: 6.0
 Tested up to: 7.1
@@ -12,7 +12,7 @@ Auto-generate, rewrite, translate, and index SEO-optimized blog posts using Goog
 
 == Description ==
 
-**Tools By Aadi** is an all-in-one AI-powered content automation suite for WordPress. It leverages the power of Google Gemini API and OpenAI ChatGPT to generate, schedule, translate, rewrite, and index high-quality SEO blog posts automatically.
+**Soniji Auto Blogging** is an all-in-one AI-powered content automation suite for WordPress. It leverages the power of Google Gemini API and OpenAI ChatGPT to generate, schedule, translate, rewrite, and index high-quality SEO blog posts automatically.
 
 ### 🌟 Key Features
 
@@ -35,10 +35,10 @@ Auto-generate, rewrite, translate, and index SEO-optimized blog posts using Goog
 
 == Installation ==
 
-1. Upload the `tools-by-aadi` directory to your `/wp-content/plugins/` folder (or install via **Plugins ➔ Add New ➔ Upload Plugin**).
-2. Activate **Tools By Aadi** through the **Plugins** screen in WordPress.
-3. Navigate to **Tools By Aadi ➔ Settings** and add your free Google Gemini API key (from [Google AI Studio](https://aistudio.google.com/app/apikey)).
-4. Start generating articles via **Tools By Aadi ➔ Generate Post** or set up automatic publishing in **Bulk Planner** & **Scheduler**.
+1. Upload the `soniji-auto-blogging` directory to your `/wp-content/plugins/` folder (or install via **Plugins ➔ Add New ➔ Upload Plugin**).
+2. Activate **Soniji Auto Blogging** through the **Plugins** screen in WordPress.
+3. Navigate to **Soniji Auto Blogging ➔ Settings** and add your free Google Gemini API key (from [Google AI Studio](https://aistudio.google.com/app/apikey)).
+4. Start generating articles via **Soniji Auto Blogging ➔ Generate Post** or set up automatic publishing in **Bulk Planner** & **Scheduler**.
 
 == Frequently Asked Questions ==
 
@@ -75,10 +75,20 @@ This plugin relies on external third-party APIs for AI content generation, image
   - Terms of Service: https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use
   - Privacy Policy: https://foundation.wikimedia.org/wiki/Policy:Privacy_policy
 
+* **IndexNow API** (by api.indexnow.org)
+  - Purpose: Pings search engines (like Bing and Yandex) to instantly index newly published articles.
+  - Terms of Service: https://www.indexnow.org/terms
+  - Privacy Policy: https://www.indexnow.org/privacy
+
+* **Bing Sitemap Ping** (by Microsoft Corporation)
+  - Purpose: Pings Bing search engine to submit the XML sitemap when it is updated or regenerated.
+  - Terms of Service: https://www.microsoft.com/en-us/legal/intellectualproperty/copyright/default
+  - Privacy Policy: https://privacy.microsoft.com/en-us/privacystatement
+
 == Changelog ==
 
 = 1.0.0 =
-* Initial rebranded launch of Tools By Aadi content automation suite.
+* Initial rebranded launch of Soniji Auto Blogging content automation suite.
 * Integrated Multi-API Key Pool & Rotation for Google Gemini & OpenAI keys.
 * Integrated Google Search Console & IndexNow automated submission.
 * Integrated local Canvas graphics generator and Gemini AI image engines.
