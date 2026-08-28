@@ -1,0 +1,1129 @@
+<?php
+/**
+ * Gemini API Client
+ * Handles all API calls with automatic key rotation and per-step transient caching.
+ * Steps: titles → article → tags → thumbnail → og_image → alt_text → meta_desc → category
+ *
+ * Model selection reads from plugin settings so users can switch models without
+ * touching code. Defaults to the best free-tier models based on known quotas.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+class SAB_Gemini {
+
+    // Default model IDs — overridden by plugin settings
+    const DEFAULT_TEXT_MODEL  = 'gemini-2.5-flash';
+    const DEFAULT_IMAGE_MODEL = 'gemini-2.0-flash';
+    // phpcs:ignore PluginCheck.CodeAnalysis.AIProvider.DirectIntegration
+    const API_BASE            = 'https://generativelanguage.googleapis.com/v1beta/models/';
+
+    // Transient TTL: 2 hours (covers generation session)
+    const CACHE_TTL = 7200;
+
+    /**
+     * Returns the active text model ID (from settings or default).
+     */
+    public static function get_text_model() {
+        $provider = get_option( 'sab_active_provider', 'gemini' );
+        if ( $provider === 'openai' ) {
+            return get_option( 'sab_openai_model', 'gpt-4o-mini' );
+        }
+        return get_option( 'sab_text_model', self::DEFAULT_TEXT_MODEL );
+    }
+
+    /**
+     * Returns the active image model ID (from settings or default).
+     */
+    public static function get_image_model() {
+        $provider = get_option( 'sab_active_provider', 'gemini' );
+        if ( $provider === 'openai' ) {
+            return 'dall-e-3';
+        }
+        $model = get_option( 'sab_image_model', self::DEFAULT_IMAGE_MODEL );
+        if ( $model === 'gemini-2.0-flash-preview-image-generation' || $model === 'gemini-3.1-flash-image-generation-preview' ) {
+            $model = self::DEFAULT_IMAGE_MODEL;
+            update_option( 'sab_image_model', $model );
+        }
+        return $model;
+    }
+
+    /**
+     * Tracks which key is currently active during a generation session.
+     * Stored in a transient keyed by session_id.
+     */
+    public static function get_current_key( string $session_id ) {
+        $key = get_transient( 'sab_session_key_' . $session_id );
+        if ( ! $key ) {
+            $key = SAB_Key_Manager::get_active_key();
+            if ( $key ) {
+                set_transient( 'sab_session_key_' . $session_id, $key, self::CACHE_TTL );
+            }
+        }
+        return $key;
+    }
+
+    public static function set_current_key( string $session_id, string $key ) {
+        set_transient( 'sab_session_key_' . $session_id, $key, self::CACHE_TTL );
+    }
+
+    // -------------------------------------------------------------------------
+    // Core Request with Auto-Rotation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Makes a Gemini API call. On quota error, reads Retry-After and rotates key.
+     * On invalid key error (400/403), marks key invalid and skips to next.
+     * Returns [ 'data' => mixed, 'key_used' => string, 'switched' => bool ] or WP_Error.
+     */
+    public static function request( string $session_id, string $model, array $body ) {
+
+        // ── Build the full Key × Model rotation matrix ───────────────────────
+        // Order: [Key1+ModelA, Key1+ModelB, ..., Key2+ModelA, Key2+ModelB, ...]
+        // On each quota error we advance to the next slot, wrapping around.
+
+        $all_keys = SAB_Key_Manager::get_all_keys();
+        $active_provider    = get_option( 'sab_active_provider', 'gemini' );
+        $secondary_provider = ( $active_provider === 'gemini' ) ? 'openai' : 'gemini';
+
+        // Categorize non-invalid keys by provider
+        $primary_keys   = [];
+        $secondary_keys = [];
+        foreach ( $all_keys as $k ) {
+            if ( ( $k['status'] ?? 'active' ) === 'invalid' ) continue;
+            $k_prov = $k['provider'] ?? 'gemini';
+            if ( $k_prov === $active_provider ) {
+                $primary_keys[] = $k['key'];
+            } else {
+                $secondary_keys[] = $k['key'];
+            }
+        }
+
+        if ( empty( $primary_keys ) && empty( $secondary_keys ) ) {
+            return new WP_Error( 'no_key', __( 'No active API keys available.', 'soniji-auto-blogging' ) );
+        }
+
+        // Determine model type
+        $image_model_names = [ 'gemini-2.0-flash', 'gemini-2.0-flash-exp', 'dall-e-3', 'imagen-3.0-generate-002' ];
+        if ( isset( SAB_Rate_Limits::MODELS[ $model ] ) ) {
+            $model_type = SAB_Rate_Limits::MODELS[ $model ]['type'] ?? 'text';
+        } elseif ( in_array( $model, $image_model_names, true ) ) {
+            $model_type = 'image';
+        } else {
+            $model_type = 'text';
+        }
+
+        $primary_models = SAB_Rate_Limits::get_fallback_models_for_type( $model_type, $active_provider );
+        $primary_models = array_values( array_unique( array_merge( [ $model ], $primary_models ) ) );
+
+        $secondary_models = SAB_Rate_Limits::get_fallback_models_for_type( $model_type, $secondary_provider );
+
+        // Build Cross-Provider & Cross-Model rotation slots:
+        // 1. Primary Keys × Primary Models
+        // 2. Secondary Keys × Secondary Models (Automated Failover!)
+        $slots = [];
+        foreach ( $primary_keys as $key ) {
+            foreach ( $primary_models as $m ) {
+                $slots[] = [ 'key' => $key, 'model' => $m, 'provider' => $active_provider ];
+            }
+        }
+        foreach ( $secondary_keys as $key ) {
+            foreach ( $secondary_models as $m ) {
+                $slots[] = [ 'key' => $key, 'model' => $m, 'provider' => $secondary_provider ];
+            }
+        }
+        $total_slots = count( $slots );
+
+        $slot_transient = 'sab_session_slot_' . $session_id . '_' . $model_type;
+        $current_slot   = (int) get_transient( $slot_transient );
+
+        if ( ! isset( $slots[ $current_slot ] ) ) {
+            $current_slot = 0;
+        }
+
+        $tried_set     = [];
+        $switched      = false;
+        $current_model = $model;
+
+        while ( true ) {
+
+            $slot          = $slots[ $current_slot ];
+            $current_key   = $slot['key'];
+            $current_model = $slot['model'];
+            $slot_provider = $slot['provider'];
+
+            // Auto-reset check each loop
+            SAB_Key_Manager::auto_reset_check();
+
+            // Refresh key status
+            $key_data = null;
+            foreach ( SAB_Key_Manager::get_all_keys() as $k ) {
+                if ( $k['key'] === $current_key ) { $key_data = $k; break; }
+            }
+
+            // Skip exhausted / invalid keys without counting as a "tried" attempt
+            if ( $key_data && in_array( $key_data['status'], [ 'exhausted', 'invalid' ], true ) ) {
+                $tried_set[ $current_slot ] = true;
+                if ( count( $tried_set ) >= $total_slots ) break;
+                $current_slot = ( $current_slot + 1 ) % $total_slots;
+                $switched = true;
+                continue;
+            }
+
+            // ── PRE-FLIGHT: Check local rate-limit counters for this key+model ─
+            if ( ! SAB_Rate_Limits::is_within_limits( $current_key, $current_model ) ) {
+                $tried_set[ $current_slot ] = true;
+                if ( count( $tried_set ) >= $total_slots ) break;
+                $current_slot = ( $current_slot + 1 ) % $total_slots;
+                set_transient( $slot_transient, $current_slot, self::CACHE_TTL );
+                $switched = true;
+                continue;
+            }
+
+            // ── Mark this slot as tried BEFORE the HTTP call ──────────────────
+            $tried_set[ $current_slot ] = true;
+
+            SAB_Key_Manager::increment_requests( $current_key );
+
+            // ── Prepare HTTP Request ──────────────────────────────────────────
+            if ( $slot_provider === 'openai' ) {
+                if ( $current_model === 'dall-e-3' ) {
+                    // phpcs:ignore PluginCheck.CodeAnalysis.AIProvider.DirectIntegration
+                    $url = 'https://api.openai.com/v1/images/generations';
+                    $prompt = '';
+                    if ( isset( $body['contents'][0]['parts'] ) ) {
+                        foreach ( $body['contents'][0]['parts'] as $part ) {
+                            if ( isset( $part['text'] ) ) $prompt .= $part['text'] . ' ';
+                        }
+                    }
+                    $req_body = [
+                        'model'           => 'dall-e-3',
+                        'prompt'          => trim( $prompt ),
+                        'n'               => 1,
+                        'size'            => '1792x1024',
+                        'response_format' => 'b64_json',
+                    ];
+                } else {
+                    // phpcs:ignore PluginCheck.CodeAnalysis.AIProvider.DirectIntegration
+                    $url      = 'https://api.openai.com/v1/chat/completions';
+                    $messages = [];
+                    foreach ( $body['contents'] ?? [] as $item ) {
+                        $msg_text = '';
+                        foreach ( $item['parts'] ?? [] as $part ) {
+                            if ( isset( $part['text'] ) ) $msg_text .= $part['text'];
+                        }
+                        $messages[] = [ 'role' => 'user', 'content' => $msg_text ];
+                    }
+                    if ( empty( $messages ) ) $messages[] = [ 'role' => 'user', 'content' => 'Hello' ];
+                    $req_body = [
+                        'model'    => $current_model,
+                        'messages' => $messages,
+                    ];
+                    // Reasoning models like o1, o1-mini, o3-mini do not accept custom temperature parameter
+                    if ( strpos( $current_model, 'o1' ) === false && strpos( $current_model, 'o3' ) === false ) {
+                        $req_body['temperature'] = isset( $body['generationConfig']['temperature'] ) ? (float) $body['generationConfig']['temperature'] : 0.7;
+                    }
+                    if ( isset( $body['generationConfig']['maxOutputTokens'] ) ) {
+                        $req_body['max_completion_tokens'] = (int) $body['generationConfig']['maxOutputTokens'];
+                    }
+                }
+                $headers = [
+                    'Content-Type'  => 'application/json',
+                    'Authorization' => 'Bearer ' . $current_key,
+                ];
+            } else {
+                // Gemini
+                $url      = self::API_BASE . $current_model . ':generateContent?key=' . $current_key;
+                $headers  = [ 'Content-Type' => 'application/json' ];
+                $req_body = $body;
+            }
+
+            $response = wp_remote_post( $url, [
+                'timeout' => 120,
+                'headers' => $headers,
+                'body'    => wp_json_encode( $req_body ),
+            ] );
+
+            if ( is_wp_error( $response ) ) {
+                return $response;
+            }
+
+            $http_code    = (int) wp_remote_retrieve_response_code( $response );
+            $body_decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+
+            // ── Quota / Rate-limit hit (429) → advance slot ───────────────────
+            if ( $http_code === 429 ||
+                 ( $slot_provider === 'openai' && isset( $body_decoded['error']['type'] ) && $body_decoded['error']['type'] === 'insufficient_quota' ) ||
+                 ( $slot_provider === 'gemini' && SAB_Key_Manager::is_quota_error( $response ) ) ) {
+
+                $retry_after = SAB_Key_Manager::parse_retry_after( $response, $body_decoded );
+
+                // Mark key exhausted only when all its model-slots have been tried
+                $key_has_untried = false;
+                foreach ( $slots as $idx => $s ) {
+                    if ( $s['key'] === $current_key && ! isset( $tried_set[ $idx ] ) ) {
+                        $key_has_untried = true;
+                        break;
+                    }
+                }
+                if ( ! $key_has_untried ) {
+                    SAB_Key_Manager::mark_exhausted( $current_key, $retry_after );
+                }
+
+                if ( count( $tried_set ) >= $total_slots ) break; // all slots tried
+                $current_slot = ( $current_slot + 1 ) % $total_slots;
+                set_transient( $slot_transient, $current_slot, self::CACHE_TTL );
+                self::set_current_key( $session_id, $slots[ $current_slot ]['key'] );
+                $switched = true;
+                continue;
+            }
+
+            // ── Invalid Key → mark invalid, skip all its slots ────────────────
+            if ( in_array( $http_code, [ 400, 401, 403 ], true ) ) {
+                $is_invalid = false;
+                if ( $slot_provider === 'openai' && in_array( $http_code, [ 401, 403 ], true ) ) $is_invalid = true;
+                elseif ( $slot_provider === 'gemini' && SAB_Key_Manager::is_invalid_key_error( $response ) ) $is_invalid = true;
+
+                if ( $is_invalid ) {
+                    SAB_Key_Manager::mark_invalid( $current_key );
+                    // Mark all slots for this key as tried
+                    foreach ( $slots as $idx => $s ) {
+                        if ( $s['key'] === $current_key ) $tried_set[ $idx ] = true;
+                    }
+                    if ( count( $tried_set ) >= $total_slots ) break;
+                    // Find next slot for a different key
+                    $current_slot = ( $current_slot + 1 ) % $total_slots;
+                    while ( $slots[ $current_slot ]['key'] === $current_key ) {
+                        $current_slot = ( $current_slot + 1 ) % $total_slots;
+                    }
+                    set_transient( $slot_transient, $current_slot, self::CACHE_TTL );
+                    self::set_current_key( $session_id, $slots[ $current_slot ]['key'] );
+                    $switched = true;
+                    continue;
+                }
+            }
+
+            // ── Generic non-200 error (model not found etc.) → try next slot ──
+            if ( $http_code !== 200 ) {
+                $msg = $body_decoded['error']['message'] ?? 'Unknown API error (HTTP ' . $http_code . ')';
+                if ( $http_code === 404 || stripos( $msg, 'not found' ) !== false || stripos( $msg, 'not supported' ) !== false ) {
+                    if ( count( $tried_set ) >= $total_slots ) break;
+                    $current_slot = ( $current_slot + 1 ) % $total_slots;
+                    set_transient( $slot_transient, $current_slot, self::CACHE_TTL );
+                    $switched = true;
+                    continue;
+                }
+                return new WP_Error( 'api_error', $msg );
+            }
+
+            // ── Success ───────────────────────────────────────────────────────
+            $token_est = 0;
+            if ( $provider === 'openai' ) {
+                $token_est = isset( $body_decoded['usage']['total_tokens'] ) ? (int) $body_decoded['usage']['total_tokens'] : 0;
+            } else {
+                $token_est = isset( $body_decoded['usageMetadata']['totalTokenCount'] ) ? (int) $body_decoded['usageMetadata']['totalTokenCount'] : 0;
+            }
+
+            if ( $token_est > 0 ) {
+                SAB_Key_Manager::increment_requests( $current_key, $token_est );
+            }
+
+            SAB_Rate_Limits::record( $current_key, $current_model, $token_est );
+
+            // Persist current slot for next request in this session
+            set_transient( $slot_transient, $current_slot, self::CACHE_TTL );
+            self::set_current_key( $session_id, $current_key );
+
+            return [
+                'data'        => $body_decoded,
+                'key_used'    => $current_key,
+                'model_used'  => $current_model,
+                'switched'    => $switched,
+                'token_used'  => $token_est,
+            ];
+        }
+
+        return new WP_Error( 'all_exhausted', __( 'All API key + model combinations are exhausted. Please wait for quota reset or add more keys.', 'soniji-auto-blogging' ) );
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper: Extract text from Gemini response
+    // -------------------------------------------------------------------------
+
+    public static function extract_text( array $data ) {
+        if ( isset( $data['choices'][0]['message']['content'] ) ) {
+            return $data['choices'][0]['message']['content'];
+        }
+        return $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+    }
+
+    // -------------------------------------------------------------------------
+    // Helper: Build standard text request body
+    // -------------------------------------------------------------------------
+
+    private static function text_body( string $prompt, array $extra = [] ) {
+        return array_merge( [
+            'contents' => [
+                [ 'parts' => [ [ 'text' => $prompt ] ] ]
+            ],
+            'generationConfig' => [
+                'temperature'     => 0.7,
+                'maxOutputTokens' => 4096,
+            ],
+        ], $extra );
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 1: Title Suggestions
+    // -------------------------------------------------------------------------
+
+    public static function get_title_suggestions( string $session_id, string $niche, string $focus_keywords = '', string $language = 'English' ) {
+        $cache_key = 'sab_titles_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'titles' => $cached, 'cached' => true, 'switched' => false ];
+
+        $default_prompt = "Generate exactly {count} highly engaging, CTR-optimized, SEO blog post title ideas for the niche: \"{niche}\".
+Write the response in the language: \"{language}\".
+{keywords_clause}
+The titles must feel human-written, catch curiosity, and be optimized for search traffic in that language.
+Return ONLY a numbered list (1. Title, 2. Title, etc.) with no additional conversational text or formatting.";
+
+        $keywords_clause = $focus_keywords
+            ? "Try to naturally incorporate some of these focus keywords: \"{$focus_keywords}\"."
+            : "";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_titles', $default_prompt, [
+            'count'           => 5,
+            'niche'           => $niche,
+            'language'        => $language,
+            'keywords_clause' => $keywords_clause,
+            'keywords'        => $focus_keywords,
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $raw    = self::extract_text( $result['data'] );
+        $titles = self::parse_numbered_list( $raw );
+
+        if ( empty( $titles ) ) {
+            $fallback = "Generate exactly 5 blog post titles for topic: \"{$niche}\". Write in language: {$language}. Return ONLY a numbered list 1 to 5.";
+            $result = self::request( $session_id, self::get_text_model(), self::text_body( $fallback ) );
+            if ( ! is_wp_error( $result ) ) {
+                $raw    = self::extract_text( $result['data'] );
+                $titles = self::parse_numbered_list( $raw );
+            }
+        }
+
+        set_transient( $cache_key, $titles, self::CACHE_TTL );
+
+        return [
+            'titles'   => $titles,
+            'cached'   => false,
+            'key_used' => is_array($result) ? $result['key_used'] : '',
+            'switched' => is_array($result) ? $result['switched'] : false,
+        ];
+    }
+
+    public static function get_planner_title_suggestions( string $session_id, string $niche, string $language = 'English', int $count = 20 ) {
+        $default_prompt = "Generate exactly {count} unique, highly engaging, CTR-optimized, SEO blog post title ideas for the niche/topic: \"{niche}\".
+Write the titles in the language: \"{language}\".
+The titles must catch curiosity, vary in angles, and target search traffic in that language.
+Return ONLY a numbered list (1. Title, 2. Title, etc.) with no additional conversational text, notes, or markdown.";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_titles', $default_prompt, [
+            'count'    => $count,
+            'niche'    => $niche,
+            'language' => $language,
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $raw    = self::extract_text( $result['data'] );
+        $titles = self::parse_numbered_list( $raw );
+
+        if ( empty( $titles ) ) {
+            $fallback = "Generate exactly {$count} blog post title ideas for topic: \"{$niche}\". Write in language: {$language}. Return ONLY a numbered list (1. Title, 2. Title, etc.).";
+            $result = self::request( $session_id, self::get_text_model(), self::text_body( $fallback ) );
+            if ( ! is_wp_error( $result ) ) {
+                $raw    = self::extract_text( $result['data'] );
+                $titles = self::parse_numbered_list( $raw );
+            }
+        }
+
+        return [
+            'titles'   => $titles,
+            'key_used' => is_array($result) ? $result['key_used'] : '',
+            'switched' => is_array($result) ? $result['switched'] : false,
+        ];
+    }
+
+    public static function get_silo_suggestions( string $session_id, string $niche, string $language = 'English' ) {
+        $prompt = "Create a search engine optimized Pillar-Cluster (Silo) content structure for the niche/topic: \"{$niche}\".
+Language: \"{$language}\".
+Return ONLY valid JSON with this exact structure:
+{
+  \"pillar\": \"Main Pillar Article Title\",
+  \"clusters\": [ \"Cluster Article Title 1\", \"Cluster Article Title 2\", \"Cluster Article Title 3\", \"Cluster Article Title 4\", \"Cluster Article Title 5\" ]
+}";
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $raw    = self::extract_text( $result['data'] );
+        $clean  = preg_replace( '/^```json\s*/i', '', trim( $raw ) );
+        $clean  = preg_replace( '/```\s*$/', '', $clean );
+        $decoded = json_decode( $clean, true );
+
+        return [
+            'silo'     => is_array( $decoded ) ? $decoded : [],
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    public static function generate_comments( string $session_id, string $title, int $count = 2 ) {
+        $prompt = "Write exactly {$count} realistic user comments for a blog post titled: \"{$title}\".
+Return ONLY a JSON array of strings, e.g. [\"Comment 1\", \"Comment 2\"]. No conversational text.";
+
+        $body = self::text_body( $prompt, [
+            'generationConfig' => [ 'temperature' => 0.8, 'maxOutputTokens' => 1024 ],
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), $body );
+        if ( is_wp_error( $result ) ) return [];
+
+        $raw   = self::extract_text( $result['data'] );
+        $clean = preg_replace( '/^```json\s*/i', '', trim( $raw ) );
+        $clean = preg_replace( '/```\s*$/', '', $clean );
+        $arr   = json_decode( $clean, true );
+        return is_array( $arr ) ? $arr : [];
+    }
+
+    public static function generate_custom_text( string $prompt, string $session_id = '' ) {
+        if ( empty( $session_id ) ) {
+            $session_id = 'sab_custom_' . uniqid();
+        }
+        $body = self::text_body( $prompt, [
+            'generationConfig' => [ 'temperature' => 0.7, 'maxOutputTokens' => 4096 ],
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), $body );
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+
+        $text  = self::extract_text( $result['data'] );
+        $clean = preg_replace( '/^```(?:html|markdown)?\s*/i', '', trim( $text ) );
+        $clean = preg_replace( '/```\s*$/', '', $clean );
+
+        return trim( $clean );
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 2: Article Generation (AdSense Ready, 1000% Human Style, Zero AI Clichés)
+    // -------------------------------------------------------------------------
+
+    public static function generate_article( string $session_id, string $title, string $focus_keywords = '', string $language = 'English' ) {
+        return self::get_article( $session_id, $title, $focus_keywords, $language );
+    }
+
+    public static function get_article( string $session_id, string $title, string $focus_keywords = '', string $language = 'English' ) {
+        $cache_key = 'sab_article_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'article' => $cached, 'cached' => true, 'switched' => false ];
+
+        $word_count = (int) get_option( 'sab_word_count', 1000 );
+        $tone       = get_option( 'sab_content_tone', 'professional' );
+        $default_prompt = "Write a comprehensive, 100% unique, human-like, SEO-optimized blog post titled: \"{title}\".
+Write the entire article in the specified language: \"{language}\".
+Word count target: {word_count} words.
+Tone: {tone}.
+{focus_clause}
+
+CRITICAL INSTRUCTIONS FOR MODERN 2026 SEO & 1000% HUMAN ADSENSE APPROVAL:
+1. NATIVE HUMAN PROSE: Write like a seasoned human journalist and niche expert. Vary sentence structures naturally (burstiness), mixing brief punchy thoughts with detailed explanations.
+2. MODERN SEO STRUCTURE:
+   - Use clear heading hierarchy (h2, h3, h4) properly nested.
+   - Include at least ONE HTML Data Table (<table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Data</td></tr></tbody></table>) comparing key specifications, pros & cons, or options.
+   - Include bulleted (<ul>) and numbered (<ol>) lists for easy scannability.
+   - Use <strong> bold formatting on key concepts and important takeaways.
+3. NO CLICHÉ AI INTROS: Do NOT open with generic AI phrases (e.g. avoid: \"In today's fast-paced digital world\", \"Have you ever wondered\", \"Welcome to our guide\", \"In this article, we will explore\"). Start IMMEDIATELY with an engaging hook or real-world observation.
+4. NO CLICHÉ AI OUTROS: Do NOT end with robotic summary titles or lines (e.g. avoid: \"In conclusion\", \"To sum up\", \"All in all\", \"Final thoughts\", \"In summary\"). Conclude with a realistic, practical human insight.
+5. STRICTLY BANNED BUZZWORDS: Do NOT use any overused AI words in any language: \"delve\", \"tapestry\", \"testament\", \"spearhead\", \"paramount\", \"beacon\", \"game-changer\", \"seamless\", \"unleash\", \"elevate\", \"crucial\", \"moreover\", \"furthermore\".
+6. HTML FORMATTING: Use clean HTML tags (h2, h3, h4, p, table, thead, tbody, tr, th, td, ul, ol, li, strong, em). Paragraphs must be short (2-3 sentences max). Output ONLY the raw HTML content (no code block fences).";
+
+        $focus_clause = $focus_keywords
+            ? "Focus Keywords to integrate naturally: \"{$focus_keywords}\"."
+            : "";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_article', $default_prompt, [
+            'title'        => $title,
+            'language'     => $language,
+            'word_count'   => $word_count,
+            'tone'         => $tone,
+            'focus_clause' => $focus_clause,
+            'keywords'     => $focus_keywords,
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt, [
+            'generationConfig' => [ 'temperature' => 0.7, 'maxOutputTokens' => 8192 ],
+        ] ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $article = self::extract_text( $result['data'] );
+        // Strip markdown code fences if present
+        $article = preg_replace( '/^```(?:html)?\s*/i', '', $article );
+        $article = preg_replace( '/```\s*$/', '', $article );
+
+        set_transient( $cache_key, $article, self::CACHE_TTL );
+
+        return [
+            'article'  => $article,
+            'cached'   => false,
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 3: Tag Generation
+    // -------------------------------------------------------------------------
+
+    public static function generate_tags( string $session_id, string $title, string $language = 'English', int $tag_count = 0 ) {
+        // Resolve count: argument → wp option → hard default of 15
+        if ( $tag_count <= 0 ) {
+            $tag_count = (int) get_option( 'sab_tag_count', 15 );
+        }
+        $tag_count = max( 1, min( 100, $tag_count ) );
+
+        $cache_key = 'sab_tags_' . $session_id . '_' . $tag_count;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'tags' => $cached, 'cached' => true, 'switched' => false ];
+
+        $default_prompt = "Generate exactly {tag_count} relevant, specific SEO tags for a blog post titled: \"{title}\".
+Return the tags in the language: \"{language}\".
+Return ONLY a comma-separated list of tags, no numbering, no extra text.";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_tags', $default_prompt, [
+            'tag_count' => $tag_count,
+            'title'     => $title,
+            'language'  => $language,
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $raw  = self::extract_text( $result['data'] );
+        $tags = array_filter( array_map( 'trim', explode( ',', $raw ) ) );
+        $tags = array_slice( array_values( $tags ), 0, $tag_count );
+
+        set_transient( $cache_key, $tags, self::CACHE_TTL );
+
+        return [
+            'tags'     => $tags,
+            'cached'   => false,
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 4: Meta Description
+    // -------------------------------------------------------------------------
+
+    public static function generate_meta_description( string $session_id, string $title, string $focus_keywords = '', string $language = 'English' ) {
+        $cache_key = 'sab_meta_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'meta' => $cached, 'cached' => true, 'switched' => false ];
+
+        $focus_clause = $focus_keywords
+            ? "Weave in the following focus keywords naturally: \"{$focus_keywords}\"."
+            : "";
+
+        $default_prompt = "Write an SEO-optimized meta description (max 160 characters) for a blog post titled: \"{title}\".
+Write the meta description in the language: \"{language}\".
+{focus_clause}
+Make it compelling, high CTR, and write in a natural human tone. Return ONLY the meta description text, no quotes, no extra remarks.";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_meta', $default_prompt, [
+            'title'        => $title,
+            'language'     => $language,
+            'focus_clause' => $focus_clause,
+            'keywords'     => $focus_keywords,
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $meta = trim( self::extract_text( $result['data'] ) );
+        $meta = str_replace( ['"', "'"], '', $meta );
+        $meta = substr( $meta, 0, 160 );
+
+        set_transient( $cache_key, $meta, self::CACHE_TTL );
+
+        return [
+            'meta'     => $meta,
+            'cached'   => false,
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 5: Category Suggestion
+    // -------------------------------------------------------------------------
+
+    public static function suggest_category( string $session_id, string $title, string $language = 'English' ) {
+        $cache_key = 'sab_cat_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'category' => $cached, 'cached' => true, 'switched' => false ];
+
+        // Get existing WP categories to match against
+        $categories = get_categories( [ 'hide_empty' => false ] );
+        $cat_names  = wp_list_pluck( $categories, 'name' );
+        $cat_list   = implode( ', ', $cat_names );
+
+        $prompt = "Given this blog post title: \"{$title}\", and these existing WordPress categories: [{$cat_list}].
+Which ONE category best fits this post? If none fit well, suggest a new category name in the language: \"{$language}\".
+Return ONLY the category name, nothing else.";
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $category = trim( self::extract_text( $result['data'] ) );
+
+        set_transient( $cache_key, $category, self::CACHE_TTL );
+
+        return [
+            'category' => $category,
+            'cached'   => false,
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 6: Thumbnail Generation
+    // Accepts optional reference_image [ 'base64' => '...', 'mime_type' => '...' ]
+    // When provided, Gemini uses it as a style/composition guide.
+    // -------------------------------------------------------------------------
+
+    public static function generate_thumbnail( string $session_id, string $title, array $reference_image = [], array $t2i_opts = [] ) {
+        $cache_key = 'sab_thumb_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'image_data' => $cached, 'cached' => true, 'switched' => false ];
+
+        // Check if Title to Image (local GD) is selected
+        $thumb_type = $t2i_opts['thumb_type'] ?? get_option( 'sab_thumb_type', 'ai' );
+        if ( $thumb_type === 'text_to_image' ) {
+            $bg_type = $t2i_opts['bg_type'] ?? get_option( 'sab_t2i_bg_type', 'gradient' );
+            $bg_val  = $t2i_opts['bg_val']  ?? get_option( 'sab_t2i_bg_val', 'blue_purple' );
+            $size    = $t2i_opts['size']    ?? get_option( 'sab_t2i_size', '600x315' );
+
+            $t2i_result = SAB_Text_To_Image::generate( $title, $bg_type, $bg_val, $size );
+            if ( ! $t2i_result ) {
+                return new WP_Error( 't2i_failed', __( 'GD Text-to-Image generation failed.', 'soniji-auto-blogging' ) );
+            }
+
+            set_transient( $cache_key, $t2i_result, self::CACHE_TTL );
+            return [
+                'image_data'     => $t2i_result,
+                'used_reference' => false,
+                'cached'         => false,
+                'key_used'       => '',
+                'switched'       => false,
+            ];
+        }
+
+        // Use provided reference image, or fall back to the saved default from Settings
+        if ( empty( $reference_image ) ) {
+            $reference_image = self::get_default_reference_image();
+        }
+
+        if ( ! empty( $reference_image['base64'] ) ) {
+            // --- Multimodal request: image + text ---
+            $prompt = "Using the uploaded reference image as a style guide, generate a 600x315 blog post thumbnail for the topic: \"{$title}\".
+Match the reference image's color palette, design style, layout composition, and overall aesthetic.
+Make it visually relevant to the topic while keeping the same look and feel as the reference.
+Output ONLY the image, no text overlays unless present in the reference.";
+
+            $body = [
+                'contents' => [ [
+                    'parts' => [
+                        [
+                            'inlineData' => [
+                                'mimeType' => $reference_image['mime_type'] ?? 'image/jpeg',
+                                'data'     => $reference_image['base64'],
+                            ],
+                        ],
+                        [ 'text' => $prompt ],
+                    ],
+                ] ],
+                'generationConfig' => [ 'responseModalities' => [ 'IMAGE', 'TEXT' ] ],
+            ];
+        } else {
+            // --- Text-only request (no reference image) ---
+            $prompt = "Create a professional, eye-catching 600x315 blog post featured image (thumbnail) for the topic: \"{$title}\".
+Use vibrant colors, modern design, and include relevant visual elements. Make it suitable for a blog header.";
+
+            $body = [
+                'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+                'generationConfig' => [ 'responseModalities' => [ 'IMAGE', 'TEXT' ] ],
+            ];
+        }
+
+        $result = self::request( $session_id, self::get_image_model(), $body );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $image_data = self::extract_image_data( $result['data'] );
+        if ( ! $image_data ) {
+            return new WP_Error( 'no_image', __( 'No image returned by Gemini.', 'soniji-auto-blogging' ) );
+        }
+
+        set_transient( $cache_key, $image_data, self::CACHE_TTL );
+
+        return [
+            'image_data'       => $image_data,
+            'used_reference'   => ! empty( $reference_image['base64'] ),
+            'cached'           => false,
+            'key_used'         => $result['key_used'],
+            'switched'         => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 7: OG Image Generation (1200x630)
+    // -------------------------------------------------------------------------
+
+    public static function generate_og_image( string $session_id, string $title, array $t2i_opts = [] ) {
+        $cache_key = 'sab_og_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'image_data' => $cached, 'cached' => true, 'switched' => false ];
+
+        // Check if Title to Image (local GD) is selected
+        $thumb_type = $t2i_opts['thumb_type'] ?? get_option( 'sab_thumb_type', 'ai' );
+        if ( $thumb_type === 'text_to_image' ) {
+            $bg_type = $t2i_opts['bg_type'] ?? get_option( 'sab_t2i_bg_type', 'gradient' );
+            $bg_val  = $t2i_opts['bg_val']  ?? get_option( 'sab_t2i_bg_val', 'blue_purple' );
+
+            $t2i_result = SAB_Text_To_Image::generate( $title, $bg_type, $bg_val, '1200x630' );
+            if ( ! $t2i_result ) {
+                return new WP_Error( 't2i_failed', __( 'GD Text-to-Image OG generation failed.', 'soniji-auto-blogging' ) );
+            }
+
+            set_transient( $cache_key, $t2i_result, self::CACHE_TTL );
+            return [
+                'image_data'     => $t2i_result,
+                'cached'         => false,
+                'key_used'       => '',
+                'switched'       => false,
+            ];
+        }
+
+        $prompt = "Create an Open Graph social sharing image (landscape, 1200x630 ratio) for a blog post titled: \"{$title}\".
+Include the blog title text prominently, use a clean modern design with complementary colors.";
+
+        $body = [
+            'contents'         => [ [ 'parts' => [ [ 'text' => $prompt ] ] ] ],
+            'generationConfig' => [ 'responseModalities' => [ 'IMAGE', 'TEXT' ] ],
+        ];
+
+        $result = self::request( $session_id, self::get_image_model(), $body );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $image_data = self::extract_image_data( $result['data'] );
+        if ( ! $image_data ) {
+            return new WP_Error( 'no_og_image', __( 'No OG image returned by Gemini.', 'soniji-auto-blogging' ) );
+        }
+
+        set_transient( $cache_key, $image_data, self::CACHE_TTL );
+
+        return [
+            'image_data' => $image_data,
+            'cached'     => false,
+            'key_used'   => $result['key_used'],
+            'switched'   => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 8: Alt Text for Thumbnail
+    // -------------------------------------------------------------------------
+
+    public static function generate_alt_text( string $session_id, string $title, string $language = 'English' ) {
+        $cache_key = 'sab_alt_' . $session_id;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'alt_text' => $cached, 'cached' => true, 'switched' => false ];
+
+        $prompt = "Write a concise, descriptive alt text (max 125 characters) in the language: \"{$language}\" for a blog thumbnail image about: \"{$title}\".
+Return ONLY the alt text, nothing else.";
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $alt = substr( trim( self::extract_text( $result['data'] ) ), 0, 125 );
+        set_transient( $cache_key, $alt, self::CACHE_TTL );
+
+        return [
+            'alt_text' => $alt,
+            'cached'   => false,
+            'key_used' => $result['key_used'],
+            'switched' => $result['switched'],
+        ];
+    }
+
+    // -------------------------------------------------------------------------
+    // Cache Management
+    // -------------------------------------------------------------------------
+
+    public static function clear_session_cache( string $session_id ) {
+        $keys = [ 'titles', 'article', 'tags', 'meta', 'cat', 'thumb', 'og', 'alt' ];
+        foreach ( $keys as $k ) {
+            delete_transient( 'sab_' . $k . '_' . $session_id );
+        }
+        delete_transient( 'sab_session_key_' . $session_id );
+    }
+
+    public static function get_cached_step( string $session_id, string $step ) {
+        return get_transient( 'sab_' . $step . '_' . $session_id );
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private static function parse_numbered_list( string $text ) {
+        $text = trim( $text );
+        if ( empty( $text ) ) return [];
+
+        // 1. Try JSON array decoding if format is JSON
+        if ( strpos( $text, '[' ) === 0 || strpos( $text, '```' ) !== false ) {
+            $clean_json = preg_replace( '/^```(?:json)?\s*|\s*```$/i', '', $text );
+            $decoded    = json_decode( trim( $clean_json ), true );
+            if ( is_array( $decoded ) && ! empty( $decoded ) ) {
+                $results = [];
+                foreach ( $decoded as $item ) {
+                    if ( is_string( $item ) && ! empty( trim( $item ) ) ) {
+                        $results[] = trim( $item, " \t\n\r\0\x0B\"'" );
+                    } elseif ( is_array( $item ) && isset( $item['title'] ) ) {
+                        $results[] = trim( $item['title'], " \t\n\r\0\x0B\"'" );
+                    }
+                }
+                if ( ! empty( $results ) ) return array_values( array_unique( $results ) );
+            }
+        }
+
+        // 2. Numbered list or bullet lines
+        $lines  = explode( "\n", $text );
+        $titles = [];
+        foreach ( $lines as $line ) {
+            $line = trim( $line );
+            if ( empty( $line ) ) continue;
+            if ( preg_match( '/^(?:\d+[\.\)\-]?|\*|\-)\s*["\']?(.*?)["\']?$/', $line, $m ) ) {
+                $val = trim( $m[1], " \t\n\r\0\x0B\"'[]`" );
+                if ( ! empty( $val ) && strlen( $val ) >= 3 ) {
+                    $titles[] = $val;
+                }
+            }
+        }
+
+        // 3. Fallback: non-empty lines
+        if ( empty( $titles ) ) {
+            foreach ( $lines as $line ) {
+                $clean = trim( $line, " \t\n\r\0\x0B\"'[]`" );
+                if ( ! empty( $clean ) && strlen( $clean ) >= 3 && strpos( $clean, '{' ) === false ) {
+                    $titles[] = $clean;
+                }
+            }
+        }
+
+        return array_values( array_unique( $titles ) );
+    }
+
+    private static function extract_image_data( array $data ) {
+        // OpenAI DALL-E format
+        if ( isset( $data['data'][0]['b64_json'] ) ) {
+            return [
+                'base64'    => $data['data'][0]['b64_json'],
+                'mime_type' => 'image/png',
+            ];
+        }
+
+        // Gemini format
+        $candidates = $data['candidates'] ?? [];
+        foreach ( $candidates as $candidate ) {
+            $parts = $candidate['content']['parts'] ?? [];
+            foreach ( $parts as $part ) {
+                if ( isset( $part['inlineData']['data'] ) ) {
+                    return [
+                        'base64'    => $part['inlineData']['data'],
+                        'mime_type' => $part['inlineData']['mimeType'] ?? 'image/png',
+                    ];
+                }
+            }
+        }
+        return null;
+    }
+
+    private static function get_blacklist_phrase() {
+        $blacklist = get_option( 'sab_blacklist_words', '' );
+        if ( empty( trim( $blacklist ) ) ) return '';
+        return "IMPORTANT: Do NOT use any of these words or phrases in your response: {$blacklist}.";
+    }
+
+    // -------------------------------------------------------------------------
+    // Default Reference Image (saved in Settings)
+    // Returns [ 'base64' => '...', 'mime_type' => '...' ] or []
+    // -------------------------------------------------------------------------
+
+    public static function get_default_reference_image() {
+        $saved = get_option( 'sab_default_reference_image', [] );
+        if ( ! empty( $saved['base64'] ) && ! empty( $saved['mime_type'] ) ) {
+            return $saved;
+        }
+        return [];
+    }
+
+    public static function save_default_reference_image( string $base64, string $mime_type ) {
+        update_option( 'sab_default_reference_image', [
+            'base64'    => $base64,
+            'mime_type' => $mime_type,
+        ] );
+    }
+
+    public static function delete_default_reference_image() {
+        delete_option( 'sab_default_reference_image' );
+    }
+
+    private static function get_custom_prompt( string $option_name, string $default_prompt, array $placeholders ) {
+        $custom = get_option( $option_name );
+        $prompt = ! empty( $custom ) ? $custom : $default_prompt;
+        
+        foreach ( $placeholders as $tag => $val ) {
+            $prompt = str_replace( '{' . $tag . '}', $val, $prompt );
+        }
+        
+        $blacklist = self::get_blacklist_phrase();
+        if ( $blacklist ) {
+            $prompt .= "\n" . $blacklist;
+        }
+        return $prompt;
+    }
+
+    public static function generate_faq( string $session_id, string $title, string $language = 'English', int $faq_count = 3 ) {
+        if ( $faq_count <= 0 ) {
+            $faq_count = (int) get_option( 'sab_faq_count', 3 );
+        }
+        $faq_count = max( 1, min( 20, $faq_count ) );
+
+        $cache_key = 'sab_faq_' . $session_id . '_' . $faq_count;
+        $cached    = get_transient( $cache_key );
+        if ( $cached ) return [ 'faqs' => $cached, 'cached' => true, 'switched' => false ];
+
+        $default_prompt = "Generate exactly {faq_count} relevant Frequently Asked Questions with detailed answers for a blog post titled: \"{title}\".
+Write the response in the language: \"{language}\".
+Return the response ONLY as a valid JSON array of objects, with no additional conversational text or markdown code block formatting. Each object MUST contain exactly:
+- \"question\": the question text
+- \"answer\": the answer text
+Example format:
+[
+  {
+    \"question\": \"What is smart gardening?\",
+    \"answer\": \"Smart gardening involves using technology like automated sensors and watering systems to grow...\"
+  }
+]";
+
+        $prompt = self::get_custom_prompt( 'sab_prompt_faq', $default_prompt, [
+            'faq_count' => $faq_count,
+            'title'     => $title,
+            'language'  => $language,
+        ] );
+
+        $body = self::text_body( $prompt, [
+            'generationConfig' => [
+                'temperature'     => 0.7,
+                'responseMimeType' => 'application/json',
+            ]
+        ] );
+
+        $result = self::request( $session_id, self::get_text_model(), $body );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $raw = self::extract_text( $result['data'] );
+        $raw = trim( preg_replace( '/^```(?:json)?|```$/i', '', trim( $raw ) ) );
+
+        $decoded = json_decode( $raw, true );
+        if ( ! is_array( $decoded ) ) {
+            return new WP_Error( 'json_parse_failed', 'Failed to parse generated FAQs JSON. Raw response: ' . substr( $raw, 0, 500 ) );
+        }
+
+        set_transient( $cache_key, $decoded, self::CACHE_TTL );
+
+        return [
+            'faqs'     => $decoded,
+            'cached'   => false,
+            'key_used' => $result['key_used'] ?? '',
+            'switched' => $result['switched'] ?? false,
+        ];
+    }
+
+    public static function translate_text( string $session_id, string $text, string $target_lang ) {
+        if ( empty( trim( $text ) ) ) return [ 'text' => '' ];
+
+        $prompt = "You are a professional translator. Translate the following text into the target language: \"{$target_lang}\".
+Return ONLY the translated text, no introductory remarks, no side-notes, no formatting.
+Text to translate:
+\"\"\"
+{$text}
+\"\"\";";
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $translated = trim( self::extract_text( $result['data'] ) );
+        // Strip wrap-around quotes if Gemini added them
+        $translated = preg_replace( '/^["\']|["\']$/u', '', $translated );
+
+        return [
+            'text'     => $translated,
+            'key_used' => $result['key_used'] ?? '',
+            'switched' => $result['switched'] ?? false,
+        ];
+    }
+
+    public static function translate_html( string $session_id, string $html, string $target_lang ) {
+        if ( empty( trim( $html ) ) ) return [ 'html' => '' ];
+
+        $prompt = "You are a professional HTML localization expert. Translate the text inside the following HTML fragment into the target language: \"{$target_lang}\".
+IMPORTANT rules:
+1. Do NOT translate or change any HTML tag names, attribute values (like class, href, id, style, src, alt, etc.), or link URLs.
+2. Maintain the HTML structure, formatting, line breaks, and tag hierarchy EXACTLY as is.
+3. Translate only the human-readable text contents.
+4. Do NOT wrap the output in markdown code blocks (like ```html). Return ONLY the raw translated HTML string.
+HTML to translate:
+\"\"\"
+{$html}
+\"\"\";";
+
+        $result = self::request( $session_id, self::get_text_model(), self::text_body( $prompt, [
+            'generationConfig' => [
+                'temperature'     => 0.3,
+                'maxOutputTokens' => 8192,
+            ]
+        ] ) );
+        if ( is_wp_error( $result ) ) return $result;
+
+        $translated_html = self::extract_text( $result['data'] );
+        // Strip markdown code fences if present
+        $translated_html = preg_replace( '/^```html\s*/i', '', $translated_html );
+        $translated_html = preg_replace( '/```\s*$/', '', $translated_html );
+
+        return [
+            'html'     => $translated_html,
+            'key_used' => $result['key_used'] ?? '',
+            'switched' => $result['switched'] ?? false,
+        ];
+    }
+}
