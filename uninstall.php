@@ -1,9 +1,9 @@
 <?php
 /**
- * Tools By Aadi Uninstall Template
+ * Soniji Auto Blogging Uninstall Template
  * Clean up all options, transients, cron jobs, and database tables when the plugin is uninstalled.
  *
- * @package Tools_By_Aadi
+ * @package Soniji_Auto_Blogging
  */
 
 // If uninstall not called from WordPress, exit.
@@ -14,14 +14,14 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 global $wpdb;
 
 // 1. Clear scheduled cron hook
-wp_clear_scheduled_hook( 'tba_scheduled_publish' );
+wp_clear_scheduled_hook( 'sab_scheduled_publish' );
 
 // 2. Drop custom database tables
 $tables = [
     // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-    $wpdb->prefix . 'tba_history',
+    $wpdb->prefix . 'sab_history',
     // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-    $wpdb->prefix . 'tba_queue'
+    $wpdb->prefix . 'sab_queue'
 ];
 
 foreach ( $tables as $table ) {
@@ -31,49 +31,49 @@ foreach ( $tables as $table ) {
 
 // 3. Delete all registered options
 $options = [
-    'tba_default_status',
-    'tba_default_author',
-    'tba_word_count',
-    'tba_tag_count',
-    'tba_content_tone',
-    'tba_blacklist_words',
-    'tba_key_reset_minutes',
-    'tba_review_mode',
-    'tba_text_model',
-    'tba_image_model',
-    'tba_active_provider',
-    'tba_openai_model',
-    'tba_enable_internal_linking',
-    'tba_max_internal_links',
-    'tba_enable_indexnow',
-    'tba_enable_comments',
-    'tba_comments_count',
-    'tba_enable_text_overlay',
-    'tba_overlay_font_size',
-    'tba_overlay_color',
-    'tba_overlay_bg_color',
-    'tba_overlay_bg_opacity',
-    'tba_overlay_position',
-    'tba_thumb_type',
-    'tba_t2i_bg_type',
-    'tba_t2i_bg_val',
-    'tba_t2i_size',
-    'tba_enable_faq',
-    'tba_faq_count',
-    'tba_gsc_json',
-    'tba_enable_gsc_auto_ping',
-    'tba_prompt_titles',
-    'tba_prompt_article',
-    'tba_prompt_meta',
-    'tba_prompt_tags',
-    'tba_prompt_faq',
-    'tba_db_version',
-    'tba_default_reference_image',
-    'tba_api_keys',
-    'tba_scheduler_enabled',
-    'tba_scheduler_niches',
-    'tba_last_niche_index',
-    'tba_scheduler_per_day'
+    'sab_default_status',
+    'sab_default_author',
+    'sab_word_count',
+    'sab_tag_count',
+    'sab_content_tone',
+    'sab_blacklist_words',
+    'sab_key_reset_minutes',
+    'sab_review_mode',
+    'sab_text_model',
+    'sab_image_model',
+    'sab_active_provider',
+    'sab_openai_model',
+    'sab_enable_internal_linking',
+    'sab_max_internal_links',
+    'sab_enable_indexnow',
+    'sab_enable_comments',
+    'sab_comments_count',
+    'sab_enable_text_overlay',
+    'sab_overlay_font_size',
+    'sab_overlay_color',
+    'sab_overlay_bg_color',
+    'sab_overlay_bg_opacity',
+    'sab_overlay_position',
+    'sab_thumb_type',
+    'sab_t2i_bg_type',
+    'sab_t2i_bg_val',
+    'sab_t2i_size',
+    'sab_enable_faq',
+    'sab_faq_count',
+    'sab_gsc_json',
+    'sab_enable_gsc_auto_ping',
+    'sab_prompt_titles',
+    'sab_prompt_article',
+    'sab_prompt_meta',
+    'sab_prompt_tags',
+    'sab_prompt_faq',
+    'sab_db_version',
+    'sab_default_reference_image',
+    'sab_api_keys',
+    'sab_scheduler_enabled',
+    'sab_scheduler_niches',
+    'sab_last_niche_index',
+    'sab_scheduler_per_day'
 ];
 
 foreach ( $options as $option ) {
@@ -81,5 +81,4 @@ foreach ( $options as $option ) {
 }
 
 // 4. Delete transient data
-delete_transient( 'tba_github_release_info' );
 delete_site_transient( 'update_plugins' );
