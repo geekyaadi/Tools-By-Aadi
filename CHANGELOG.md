@@ -2,7 +2,7 @@
 
 ## [v1.0.0] - 2026-08-26
 
-### 🚀 Initial Rebranded Launch of Tools By Aadi
+### 🚀 Initial Rebranded Launch of Soniji Auto Blogging
 - **Multi-API Key Pool & Rotation**: Add unlimited Gemini & OpenAI API keys. Automatic failover switches keys immediately on quota or rate-limit errors.
 - **Mid-Step Resume Pipeline**: Multi-step generation pipeline (Title ➔ Article ➔ Tags ➔ Meta ➔ FAQ ➔ Thumbnail). If an API call fails mid-way, it resumes from the exact failed step without losing work.
 - **Automated Drip Scheduler**: Set "publish X posts per day" with niche rotation, WP-Cron automation, and real-time live queue tracking.
