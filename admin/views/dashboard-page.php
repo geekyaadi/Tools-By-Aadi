@@ -1,10 +1,10 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-$history    = TBA_History::get_all(30);
-$stats      = TBA_History::get_summary_stats();
-$key_stats  = TBA_Key_Manager::get_stats();
-$all_keys   = TBA_Key_Manager::get_all_keys();
+$history    = SAB_History::get_all(30);
+$stats      = SAB_History::get_summary_stats();
+$key_stats  = SAB_Key_Manager::get_stats();
+$all_keys   = SAB_Key_Manager::get_all_keys();
 
 $msg_map = [
     'deleted'        => ['type'=>'success','text'=>'✅ History entry deleted.'],
@@ -12,43 +12,42 @@ $msg_map = [
     'cache_purged'   => ['type'=>'success','text'=>'⚡ All Site & Transients Caches Purged Successfully!'],
     'settings_reset' => ['type'=>'success','text'=>'⚙️ All Plugin Settings Reset to Defaults.'],
 ];
-// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-$msg = $_GET['msg'] ?? '';
+$msg = isset( $_GET['msg'] ) ? sanitize_key( $_GET['msg'] ) : '';
 $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across models
 ?>
 
-<div class="tba-wrap">
+<div class="sab-wrap">
     <!-- Main Top Navigation -->
-    <div class="tba-header">
-        <div class="tba-header-inner">
-            <div class="tba-logo">
-                <img src="<?php echo esc_url( TBA_PLUGIN_URL . 'admin/tools-by-aadi-by-aadi.png' ); ?>" alt="Logo" style="height:32px; width:auto; vertical-align:middle; margin-right:10px; border-radius:4px;">
-                <span class="tba-logo-badge">Control Center</span>
+    <div class="sab-header">
+        <div class="sab-header-inner">
+            <div class="sab-logo">
+                <img src="<?php echo esc_url( SAB_PLUGIN_URL . 'admin/soniji-auto-blogging-by-aadi.png' ); ?>" alt="Logo" style="height:32px; width:auto; vertical-align:middle; margin-right:10px; border-radius:4px;">
+                <span class="sab-logo-badge">Control Center</span>
             </div>
-            <div class="tba-header-nav">
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tools-by-aadi') ); ?>" class="tba-nav-link active">Dashboard</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-generate') ); ?>" class="tba-nav-link">Generate Post</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-planner') ); ?>" class="tba-nav-link">Bulk Planner</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-scheduler') ); ?>" class="tba-nav-link">Scheduler</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-thumbnails') ); ?>" class="tba-nav-link">Thumbnail Tool</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-tags') ); ?>" class="tba-nav-link">Tags Tool</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-translator') ); ?>" class="tba-nav-link">Translator</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-gsc') ); ?>" class="tba-nav-link">Indexing</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-rewriter') ); ?>" class="tba-nav-link">Rewriter</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-speed') ); ?>" class="tba-nav-link">Optimizer</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-sitemap') ); ?>" class="tba-nav-link">Sitemap</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-pages') ); ?>" class="tba-nav-link">Pages Generator</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-redirects') ); ?>" class="tba-nav-link">Redirect</a>
-                    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-randomizer') ); ?>" class="tba-nav-link">Date Randomizer</a>
-    <a href="<?php echo esc_url( admin_url('admin.php?page=tba-codes') ); ?>" class="tba-nav-link">Codes</a>
-                <a href="<?php echo esc_url( admin_url('admin.php?page=tba-settings') ); ?>" class="tba-nav-link">Settings</a>
+            <div class="sab-header-nav">
+                <a href="<?php echo esc_url( admin_url('admin.php?page=soniji-auto-blogging') ); ?>" class="sab-nav-link active">Dashboard</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-generate') ); ?>" class="sab-nav-link">Generate Post</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-planner') ); ?>" class="sab-nav-link">Bulk Planner</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-scheduler') ); ?>" class="sab-nav-link">Scheduler</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-thumbnails') ); ?>" class="sab-nav-link">Thumbnail Tool</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-tags') ); ?>" class="sab-nav-link">Tags Tool</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-translator') ); ?>" class="sab-nav-link">Translator</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-gsc') ); ?>" class="sab-nav-link">Indexing</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-rewriter') ); ?>" class="sab-nav-link">Rewriter</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-speed') ); ?>" class="sab-nav-link">Optimizer</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-sitemap') ); ?>" class="sab-nav-link">Sitemap</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-pages') ); ?>" class="sab-nav-link">Pages Generator</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-redirects') ); ?>" class="sab-nav-link">Redirect</a>
+                    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-randomizer') ); ?>" class="sab-nav-link">Date Randomizer</a>
+    <a href="<?php echo esc_url( admin_url('admin.php?page=sab-codes') ); ?>" class="sab-nav-link">Codes</a>
+                <a href="<?php echo esc_url( admin_url('admin.php?page=sab-settings') ); ?>" class="sab-nav-link">Settings</a>
             </div>
         </div>
     </div>
 
-    <div class="tba-content">
+    <div class="sab-content">
         <?php if ( $msg && isset($msg_map[$msg]) ): ?>
-            <div class="tba-alert tba-alert-<?php echo esc_attr( $msg_map[$msg]['type'] ); ?>" style="margin-bottom:18px;">
+            <div class="sab-alert sab-alert-<?php echo esc_attr( $msg_map[$msg]['type'] ); ?>" style="margin-bottom:18px;">
                 <?php echo esc_html($msg_map[$msg]['text']); ?>
             </div>
         <?php endif; ?>
@@ -56,23 +55,23 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
         <!-- Control Action Bar: Red Purge Cache & Reset Settings Buttons -->
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px; margin-bottom:20px; background:#ffffff; border:1px solid #c3c4c7; padding:14px 20px; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
             <div>
-                <h2 style="font-size:16px; font-weight:600; margin:0 0 4px 0; color:var(--tba-text-dark); display:flex; align-items:center; gap:8px;">
-                    <span>⚡</span> Tools By Aadi Control Center &amp; Quick Actions
+                <h2 style="font-size:16px; font-weight:600; margin:0 0 4px 0; color:var(--sab-text-dark); display:flex; align-items:center; gap:8px;">
+                    <span>⚡</span> Soniji Auto Blogging Control Center &amp; Quick Actions
                 </h2>
-                <p style="margin:0; font-size:13px; color:var(--tba-text-muted);">Manage AI Generation, API Keys, Scheduled Automation, &amp; Site Cache Purge.</p>
+                <p style="margin:0; font-size:13px; color:var(--sab-text-muted);">Manage AI Generation, API Keys, Scheduled Automation, &amp; Site Cache Purge.</p>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                 <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" style="margin:0;">
-                    <?php wp_nonce_field('tba_purge_speed_cache'); ?>
-                    <input type="hidden" name="action" value="tba_purge_speed_cache">
+                    <?php wp_nonce_field('sab_purge_speed_cache'); ?>
+                    <input type="hidden" name="action" value="sab_purge_speed_cache">
                     <button type="submit" class="button button-primary" style="background:#d63638; border-color:#b32d2e; color:#ffffff; font-weight:600; padding:4px 14px; cursor:pointer;">
                         ⚡ Purge All Site Caches Now
                     </button>
                 </form>
 
                 <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" style="margin:0;" onsubmit="return confirm('Reset all plugin settings to defaults?')">
-                    <?php wp_nonce_field('tba_reset_settings'); ?>
-                    <input type="hidden" name="action" value="tba_reset_settings">
+                    <?php wp_nonce_field('sab_reset_settings'); ?>
+                    <input type="hidden" name="action" value="sab_reset_settings">
                     <button type="submit" class="button button-secondary" style="font-weight:600; padding:4px 14px; cursor:pointer;">
                         ⚙️ Reset Plugin Settings
                     </button>
@@ -81,51 +80,51 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
         </div>
 
         <!-- Two Column Dashboard Grid -->
-        <div class="tba-two-col">
+        <div class="sab-two-col">
 
             <!-- LEFT: Stats, Keys, & History -->
-            <div class="tba-col-left">
+            <div class="sab-col-left">
 
                 <!-- Stats Cards -->
-                <div class="tba-stats-grid select-none">
-                    <div class="tba-stat-card tba-stat-primary">
-                        <div class="tba-stat-icon">📝</div>
-                        <div class="tba-stat-value"><?php echo (int) $stats['total']; ?></div>
-                        <div class="tba-stat-label">Total Generated</div>
+                <div class="sab-stats-grid select-none">
+                    <div class="sab-stat-card sab-stat-primary">
+                        <div class="sab-stat-icon">📝</div>
+                        <div class="sab-stat-value"><?php echo (int) $stats['total']; ?></div>
+                        <div class="sab-stat-label">Total Generated</div>
                     </div>
-                    <div class="tba-stat-card tba-stat-success">
-                        <div class="tba-stat-icon">✅</div>
-                        <div class="tba-stat-value"><?php echo (int) $stats['success']; ?></div>
-                        <div class="tba-stat-label">Successful</div>
+                    <div class="sab-stat-card sab-stat-success">
+                        <div class="sab-stat-icon">✅</div>
+                        <div class="sab-stat-value"><?php echo (int) $stats['success']; ?></div>
+                        <div class="sab-stat-label">Successful</div>
                     </div>
-                    <div class="tba-stat-card tba-stat-info">
-                        <div class="tba-stat-icon">🔢</div>
-                        <div class="tba-stat-value"><?php echo number_format($stats['total_tokens']); ?></div>
-                        <div class="tba-stat-label">Est. Tokens Used</div>
+                    <div class="sab-stat-card sab-stat-info">
+                        <div class="sab-stat-icon">🔢</div>
+                        <div class="sab-stat-value"><?php echo number_format($stats['total_tokens']); ?></div>
+                        <div class="sab-stat-label">Est. Tokens Used</div>
                     </div>
-                    <div class="tba-stat-card tba-stat-warning">
-                        <div class="tba-stat-icon">💰</div>
-                        <div class="tba-stat-value">~$<?php echo number_format($stats['total_tokens'] * $cost_per_1k / 1000, 4); ?></div>
-                        <div class="tba-stat-label">Est. Cost (USD)</div>
+                    <div class="sab-stat-card sab-stat-warning">
+                        <div class="sab-stat-icon">💰</div>
+                        <div class="sab-stat-value">~$<?php echo number_format($stats['total_tokens'] * $cost_per_1k / 1000, 4); ?></div>
+                        <div class="sab-stat-label">Est. Cost (USD)</div>
                     </div>
                 </div>
 
                 <!-- API Keys Status Panel -->
-                <div class="tba-panel">
-                    <div class="tba-panel-header">
-                        <h2 class="tba-panel-title">🔑 API Key Health Dashboard</h2>
-                        <div class="tba-panel-actions">
-                            <button type="button" id="tba-btn-ping-all" class="tba-btn tba-btn-secondary tba-btn-sm">🏓 Ping All</button>
-                            <a href="<?php echo esc_url( admin_url('admin.php?page=tba-settings') ); ?>" class="tba-btn tba-btn-ghost tba-btn-sm">⚙️ Manage Keys</a>
+                <div class="sab-panel">
+                    <div class="sab-panel-header">
+                        <h2 class="sab-panel-title">🔑 API Key Health Dashboard</h2>
+                        <div class="sab-panel-actions">
+                            <button type="button" id="sab-btn-ping-all" class="sab-btn sab-btn-secondary sab-btn-sm">🏓 Ping All</button>
+                            <a href="<?php echo esc_url( admin_url('admin.php?page=sab-settings') ); ?>" class="sab-btn sab-btn-ghost sab-btn-sm">⚙️ Manage Keys</a>
                         </div>
                     </div>
 
                     <?php if (empty($all_keys)): ?>
-                    <div class="tba-empty-state">
-                        No API keys configured. <a href="<?php echo esc_url( admin_url('admin.php?page=tba-settings') ); ?>">Configure keys first →</a>
+                    <div class="sab-empty-state">
+                        No API keys configured. <a href="<?php echo esc_url( admin_url('admin.php?page=sab-settings') ); ?>">Configure keys first →</a>
                     </div>
                     <?php else: ?>
-                    <table class="tba-table" id="tba-keys-table">
+                    <table class="sab-table" id="sab-keys-table">
                         <thead>
                             <tr>
                                 <th>Provider</th>
@@ -141,18 +140,18 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                                 $req   = (int)($k['requests'] ?? 0);
                                 $fail  = (int)($k['failures'] ?? 0);
                                 $rate  = $req > 0 ? round(($req - $fail) / $req * 100) : 100;
-                                $reset = TBA_Key_Manager::seconds_until_reset($k);
+                                $reset = SAB_Key_Manager::seconds_until_reset($k);
                                 $prov  = $k['provider'] ?? 'gemini';
                             ?>
                             <tr data-key-index="<?php echo (int) $i; ?>" data-reset-ts="<?php echo (int)($k['reset_at_ts'] ?? 0); ?>">
                                 <td>
-                                    <span class="tba-badge tba-badge-<?php echo esc_attr($prov); ?>">
+                                    <span class="sab-badge sab-badge-<?php echo esc_attr($prov); ?>">
                                         <?php echo $prov === 'openai' ? 'OpenAI' : 'Gemini'; ?>
                                     </span>
                                 </td>
-                                <td><code class="tba-key-masked"><?php echo esc_html(TBA_Key_Manager::mask_key($k['key'])); ?></code></td>
-                                <td class="tba-key-status-cell">
-                                    <span class="tba-status-badge tba-status-<?php echo esc_attr($k['status']); ?>">
+                                <td><code class="sab-key-masked"><?php echo esc_html(SAB_Key_Manager::mask_key($k['key'])); ?></code></td>
+                                <td class="sab-key-status-cell">
+                                    <span class="sab-status-badge sab-status-<?php echo esc_attr($k['status']); ?>">
                                         <?php
                                         if ($k['status'] === 'active')    echo '✅ Active';
                                         elseif ($k['status'] === 'invalid') echo '⛔ Invalid';
@@ -160,20 +159,20 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                                         ?>
                                     </span>
                                 </td>
-                                <td class="tba-key-countdown-cell">
+                                <td class="sab-key-countdown-cell">
                                     <?php if ($k['status'] === 'exhausted' && $reset !== null): ?>
-                                    <span class="tba-countdown" data-reset-ts="<?php echo (int)$k['reset_at_ts']; ?>">
-                                        ⏱ <span class="tba-countdown-val"><?php echo esc_html( TBA_Key_Manager::format_seconds($reset) ); ?></span>
+                                    <span class="sab-countdown" data-reset-ts="<?php echo (int)$k['reset_at_ts']; ?>">
+                                        ⏱ <span class="sab-countdown-val"><?php echo esc_html( SAB_Key_Manager::format_seconds($reset) ); ?></span>
                                     </span>
                                     <?php else: ?>
-                                    <span class="tba-text-muted">—</span>
+                                    <span class="sab-text-muted">—</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span class="tba-progress-pct"><?php echo (int) $rate; ?>%</span>
+                                    <span class="sab-progress-pct"><?php echo (int) $rate; ?>%</span>
                                 </td>
                                 <td>
-                                    <button type="button" class="tba-btn-small tba-btn-ghost tba-btn-ping" data-key-index="<?php echo (int) $i; ?>">🏓</button>
+                                    <button type="button" class="sab-btn-small sab-btn-ghost sab-btn-ping" data-key-index="<?php echo (int) $i; ?>">🏓</button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
@@ -183,22 +182,22 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                 </div>
 
                 <!-- History Log Panel -->
-                <div class="tba-panel">
-                    <div class="tba-panel-header">
-                        <h2 class="tba-panel-title">📋 Recent Generations Log</h2>
+                <div class="sab-panel">
+                    <div class="sab-panel-header">
+                        <h2 class="sab-panel-title">📋 Recent Generations Log</h2>
                         <?php if (!empty($history)): ?>
                         <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" onsubmit="return confirm('Clear ALL history? This cannot be undone.')">
-                            <?php wp_nonce_field('tba_clear_history'); ?>
-                            <input type="hidden" name="action" value="tba_clear_history">
-                            <button class="tba-btn-small tba-btn-danger" type="submit">🗑 Clear All</button>
+                            <?php wp_nonce_field('sab_clear_history'); ?>
+                            <input type="hidden" name="action" value="sab_clear_history">
+                            <button class="sab-btn-small sab-btn-danger" type="submit">🗑 Clear All</button>
                         </form>
                         <?php endif; ?>
                     </div>
 
                     <?php if (empty($history)): ?>
-                    <div class="tba-empty-state">No posts generated yet. Use the Quick Generator to start.</div>
+                    <div class="sab-empty-state">No posts generated yet. Use the Quick Generator to start.</div>
                     <?php else: ?>
-                    <table class="tba-table">
+                    <table class="sab-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -214,20 +213,20 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                                 <td><?php echo esc_html(gmdate( 'M j, H:i', strtotime($row->created_at))); ?></td>
                                 <td>
                                     <?php if ($row->post_id): ?>
-                                    <a href="<?php echo esc_url( get_permalink($row->post_id) ); ?>" target="_blank" class="tba-history-title-link" style="font-weight:600;">
+                                    <a href="<?php echo esc_url( get_permalink($row->post_id) ); ?>" target="_blank" class="sab-history-title-link" style="font-weight:600;">
                                         <?php echo esc_html(wp_trim_words($row->title, 8)); ?>
                                     </a>
                                     <?php
                                     $pending = [];
                                     if ( ! has_post_thumbnail( $row->post_id ) ) {
-                                        $pending[] = '<span class="tba-status-badge tba-status-exhausted" style="font-size:10px; padding:1px 4px; margin-top:4px; display:inline-block; margin-right:4px;">🖼️ Thumbnail Pending</span>';
+                                        $pending[] = '<span class="sab-status-badge sab-status-exhausted" style="font-size:10px; padding:1px 4px; margin-top:4px; display:inline-block; margin-right:4px;">🖼️ Thumbnail Pending</span>';
                                     }
                                     $t = get_the_tags( $row->post_id );
                                     if ( empty( $t ) ) {
-                                        $pending[] = '<span class="tba-status-badge tba-status-exhausted" style="font-size:10px; padding:1px 4px; margin-top:4px; display:inline-block; margin-right:4px;">🏷️ Tags Pending</span>';
+                                        $pending[] = '<span class="sab-status-badge sab-status-exhausted" style="font-size:10px; padding:1px 4px; margin-top:4px; display:inline-block; margin-right:4px;">🏷️ Tags Pending</span>';
                                     }
                                     if ( ! empty( $pending ) ) {
-                                        echo wp_kses_post( '<div class="tba-log-item-meta" style="margin-top:2px;">' . implode( '', $pending ) . '</div>' );
+                                        echo wp_kses_post( '<div class="sab-log-item-meta" style="margin-top:2px;">' . implode( '', $pending ) . '</div>' );
                                     }
                                     ?>
                                     <?php else: ?>
@@ -235,12 +234,12 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span class="tba-badge tba-badge-<?php echo esc_attr($row->key_used && strpos($row->key_used, 'sk-') === 0 ? 'openai' : 'gemini'); ?>">
+                                    <span class="sab-badge sab-badge-<?php echo esc_attr($row->key_used && strpos($row->key_used, 'sk-') === 0 ? 'openai' : 'gemini'); ?>">
                                         <?php echo $row->key_used && strpos($row->key_used, 'sk-') === 0 ? 'OpenAI' : 'Gemini'; ?>
                                     </span>
                                 </td>
                                 <td>
-                                    <span class="tba-status-badge tba-status-<?php echo $row->status==='success'?'active':'exhausted'; ?>">
+                                    <span class="sab-status-badge sab-status-<?php echo $row->status==='success'?'active':'exhausted'; ?>">
                                         <?php echo $row->status==='success' ? '✅ Success' : '❌ Failed'; ?>
                                     </span>
                                 </td>
@@ -255,108 +254,108 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
             </div>
 
             <!-- RIGHT: Quick Generator Form -->
-            <div class="tba-col-right">
+            <div class="sab-col-right">
 
-                <div class="tba-panel tba-generate-panel">
-                    <div class="tba-panel-header">
-                        <h2 class="tba-panel-title">⚡ Quick Post Generator</h2>
-                        <div class="tba-key-badge">
-                            <span class="tba-key-dot <?php echo $key_stats['active'] > 0 ? 'active' : 'inactive'; ?>"></span>
+                <div class="sab-panel sab-generate-panel">
+                    <div class="sab-panel-header">
+                        <h2 class="sab-panel-title">⚡ Quick Post Generator</h2>
+                        <div class="sab-key-badge">
+                            <span class="sab-key-dot <?php echo $key_stats['active'] > 0 ? 'active' : 'inactive'; ?>"></span>
                             <span><?php echo (int) $key_stats['active']; ?>/<?php echo (int) $key_stats['total']; ?> Keys Active</span>
                         </div>
                     </div>
 
                     <!-- Step 1: Niche & Keywords -->
-                    <div class="tba-step" id="tba-step-niche">
-                        <div class="tba-step-number">1</div>
-                        <div class="tba-step-body">
-                            <label class="tba-label" for="tba-niche-input">Enter Niche or Topic</label>
-                            <input type="text" id="tba-niche-input" class="tba-input"
+                    <div class="sab-step" id="sab-step-niche">
+                        <div class="sab-step-number">1</div>
+                        <div class="sab-step-body">
+                            <label class="sab-label" for="sab-niche-input">Enter Niche or Topic</label>
+                            <input type="text" id="sab-niche-input" class="sab-input"
                                 placeholder="e.g. Finance, Weight Loss, Tech Reviews..." autocomplete="off" />
 
-                            <label class="tba-label" for="tba-keywords-input" style="margin-top: 14px;">Focus Keywords (SEO)</label>
-                            <input type="text" id="tba-keywords-input" class="tba-input"
+                            <label class="sab-label" for="sab-keywords-input" style="margin-top: 14px;">Focus Keywords (SEO)</label>
+                            <input type="text" id="sab-keywords-input" class="sab-input"
                                 placeholder="e.g. weight loss tips, how to lose fat (comma separated)" autocomplete="off" />
 
                             <div style="margin-top: 14px;">
-                                <button type="button" id="tba-btn-find-titles" class="tba-btn tba-btn-primary tba-btn-full">
-                                    <span class="tba-btn-icon">🔍</span> Find Titles
+                                <button type="button" id="sab-btn-find-titles" class="sab-btn sab-btn-primary sab-btn-full">
+                                    <span class="sab-btn-icon">🔍</span> Find Titles
                                 </button>
                             </div>
                         </div>
                     </div>
 
                     <!-- Step 2: Title selection -->
-                    <div class="tba-step tba-step-locked" id="tba-step-titles">
-                        <div class="tba-step-number">2</div>
-                        <div class="tba-step-body">
-                            <label class="tba-label">Select Title</label>
-                            <div class="tba-titles-list" id="tba-titles-list">
-                                <div class="tba-titles-placeholder">Find titles first...</div>
+                    <div class="sab-step sab-step-locked" id="sab-step-titles">
+                        <div class="sab-step-number">2</div>
+                        <div class="sab-step-body">
+                            <label class="sab-label">Select Title</label>
+                            <div class="sab-titles-list" id="sab-titles-list">
+                                <div class="sab-titles-placeholder">Find titles first...</div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Step 3: Options & Reference Image -->
-                    <div class="tba-step tba-step-locked" id="tba-step-options">
-                        <div class="tba-step-number">3</div>
-                        <div class="tba-step-body">
-                            <div class="tba-options-row">
-                                <div class="tba-option-group">
-                                    <label class="tba-option-label">Status</label>
-                                    <select id="tba-post-status" class="tba-select">
-                                        <option value="draft" <?php selected( get_option('tba_default_status','draft'), 'draft' ); ?>>Draft</option>
-                                        <option value="publish" <?php selected( get_option('tba_default_status','draft'), 'publish' ); ?>>Published</option>
+                    <div class="sab-step sab-step-locked" id="sab-step-options">
+                        <div class="sab-step-number">3</div>
+                        <div class="sab-step-body">
+                            <div class="sab-options-row">
+                                <div class="sab-option-group">
+                                    <label class="sab-option-label">Status</label>
+                                    <select id="sab-post-status" class="sab-select">
+                                        <option value="draft" <?php selected( get_option('sab_default_status','draft'), 'draft' ); ?>>Draft</option>
+                                        <option value="publish" <?php selected( get_option('sab_default_status','draft'), 'publish' ); ?>>Published</option>
                                     </select>
                                 </div>
                             </div>
 
                             <!-- Image style reference -->
-                            <div class="tba-ref-img-section">
-                                <div class="tba-ref-img-header">
-                                    <span class="tba-ref-img-title">🖼️ Thumbnail Reference Style</span>
-                                    <?php $has_default = ! empty( TBA_Gemini::get_default_reference_image() ); ?>
+                            <div class="sab-ref-img-section">
+                                <div class="sab-ref-img-header">
+                                    <span class="sab-ref-img-title">🖼️ Thumbnail Reference Style</span>
+                                    <?php $has_default = ! empty( SAB_Gemini::get_default_reference_image() ); ?>
                                     <?php if ( $has_default ): ?>
-                                    <span class="tba-badge tba-badge-default" title="A default reference image is set in Settings">✦ Default Set</span>
+                                    <span class="sab-badge sab-badge-default" title="A default reference image is set in Settings">✦ Default Set</span>
                                     <?php endif; ?>
                                 </div>
 
-                                <div class="tba-upload-zone" id="tba-upload-zone">
-                                    <div class="tba-upload-idle" id="tba-upload-idle">
-                                        <span class="tba-upload-icon">📁</span>
-                                        <span class="tba-upload-text">Drag sample image here or <label for="tba-ref-img-input" class="tba-upload-link">browse</label></span>
+                                <div class="sab-upload-zone" id="sab-upload-zone">
+                                    <div class="sab-upload-idle" id="sab-upload-idle">
+                                        <span class="sab-upload-icon">📁</span>
+                                        <span class="sab-upload-text">Drag sample image here or <label for="sab-ref-img-input" class="sab-upload-link">browse</label></span>
                                     </div>
-                                    <div class="tba-upload-preview" id="tba-upload-preview" style="display:none;">
-                                        <img id="tba-ref-img-thumb" src="" alt="Reference Preview">
-                                        <div class="tba-upload-preview-info">
-                                            <span id="tba-ref-img-name" class="tba-upload-filename"></span>
-                                            <button type="button" id="tba-btn-clear-ref" class="tba-btn-small tba-btn-danger">✕</button>
+                                    <div class="sab-upload-preview" id="sab-upload-preview" style="display:none;">
+                                        <img id="sab-ref-img-thumb" src="" alt="Reference Preview">
+                                        <div class="sab-upload-preview-info">
+                                            <span id="sab-ref-img-name" class="sab-upload-filename"></span>
+                                            <button type="button" id="sab-btn-clear-ref" class="sab-btn-small sab-btn-danger">✕</button>
                                         </div>
                                     </div>
-                                    <input type="file" id="tba-ref-img-input" accept="image/*" style="display:none;">
+                                    <input type="file" id="sab-ref-img-input" accept="image/*" style="display:none;">
                                 </div>
                             </div>
 
-                            <div class="tba-action-buttons" style="margin-top:20px;">
-                                <button id="tba-btn-preview" class="tba-btn tba-btn-secondary">👁 Preview</button>
-                                <button id="tba-btn-generate" class="tba-btn tba-btn-primary" disabled>⚡ Generate</button>
+                            <div class="sab-action-buttons" style="margin-top:20px;">
+                                <button id="sab-btn-preview" class="sab-btn sab-btn-secondary">👁 Preview</button>
+                                <button id="sab-btn-generate" class="sab-btn sab-btn-primary" disabled>⚡ Generate</button>
                             </div>
                         </div>
                     </div>
 
                     <!-- Progress pipeline -->
-                    <div class="tba-progress-panel" id="tba-progress-steps" style="display:none;">
-                        <div class="tba-panel-header" style="padding: 10px 0; border-bottom: 1px solid var(--tba-border);">
-                            <h3 class="tba-panel-title" style="font-size:13px;">🔄 Pipeline Progress</h3>
+                    <div class="sab-progress-panel" id="sab-progress-steps" style="display:none;">
+                        <div class="sab-panel-header" style="padding: 10px 0; border-bottom: 1px solid var(--sab-border);">
+                            <h3 class="sab-panel-title" style="font-size:13px;">🔄 Pipeline Progress</h3>
                         </div>
 
                         <!-- Live key switch notice -->
-                        <div class="tba-alert tba-alert-warning" id="tba-key-switch-notice" style="display:none; margin-top:10px;">
-                            <span class="tba-alert-icon">⚡</span>
-                            <span id="tba-key-switch-text">Switching keys...</span>
+                        <div class="sab-alert sab-alert-warning" id="sab-key-switch-notice" style="display:none; margin-top:10px;">
+                            <span class="sab-alert-icon">⚡</span>
+                            <span id="sab-key-switch-text">Switching keys...</span>
                         </div>
 
-                        <div class="tba-progress-list">
+                        <div class="sab-progress-list">
                             <?php
                             $steps = [
                                 'article'   => '📝 Write Article (Unique & Human)',
@@ -370,11 +369,11 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                             ];
                             foreach ( $steps as $step_id => $step_label ):
                             ?>
-                            <div class="tba-progress-step" id="tba-pstep-<?php echo esc_attr( $step_id ); ?>">
-                                <div class="tba-pstep-dot waiting"></div>
-                                <div class="tba-pstep-body">
-                                    <div class="tba-pstep-label"><?php echo esc_html($step_label); ?></div>
-                                    <div class="tba-pstep-meta"></div>
+                            <div class="sab-progress-step" id="sab-pstep-<?php echo esc_attr( $step_id ); ?>">
+                                <div class="sab-pstep-dot waiting"></div>
+                                <div class="sab-pstep-body">
+                                    <div class="sab-pstep-label"><?php echo esc_html($step_label); ?></div>
+                                    <div class="sab-pstep-meta"></div>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -382,7 +381,7 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
                     </div>
 
                     <!-- Output Results -->
-                    <div class="tba-result-box" id="tba-result" style="display:none;"></div>
+                    <div class="sab-result-box" id="sab-result" style="display:none;"></div>
                 </div>
 
             </div>
@@ -390,28 +389,28 @@ $cost_per_1k = 0.00015; // average cost estimate in USD per 1k tokens across mod
         </div>
 
         <!-- Preview Modal Overlay -->
-        <div class="tba-preview-panel" id="tba-preview-panel" style="display:none;">
-            <div class="tba-preview-header">
-                <div class="tba-preview-header-title">👁 Post Preview (SEO &amp; Readability Approved)</div>
-                <div class="tba-preview-header-actions">
-                    <button id="tba-btn-confirm-publish" class="tba-btn tba-btn-primary">🚀 Publish Post Now</button>
-                    <button id="tba-btn-cancel-preview" class="tba-btn tba-btn-secondary">✕ Close</button>
+        <div class="sab-preview-panel" id="sab-preview-panel" style="display:none;">
+            <div class="sab-preview-header">
+                <div class="sab-preview-header-title">👁 Post Preview (SEO &amp; Readability Approved)</div>
+                <div class="sab-preview-header-actions">
+                    <button id="sab-btn-confirm-publish" class="sab-btn sab-btn-primary">🚀 Publish Post Now</button>
+                    <button id="sab-btn-cancel-preview" class="sab-btn sab-btn-secondary">✕ Close</button>
                 </div>
             </div>
-            <div class="tba-preview-body">
-                <div class="tba-preview-meta-row">
-                    <strong>Category:</strong> <span id="tba-preview-category"></span> |
-                    <strong>Tags:</strong> <span id="tba-preview-tags"></span>
+            <div class="sab-preview-body">
+                <div class="sab-preview-meta-row">
+                    <strong>Category:</strong> <span id="sab-preview-category"></span> |
+                    <strong>Tags:</strong> <span id="sab-preview-tags"></span>
                 </div>
-                <div class="tba-preview-meta-row">
-                    <strong>Meta Description:</strong> <span id="tba-preview-meta-desc"></span>
+                <div class="sab-preview-meta-row">
+                    <strong>Meta Description:</strong> <span id="sab-preview-meta-desc"></span>
                 </div>
-                <h1 class="tba-preview-post-title" id="tba-preview-title"></h1>
-                <div class="tba-preview-content-area" id="tba-preview-content"></div>
+                <h1 class="sab-preview-post-title" id="sab-preview-title"></h1>
+                <div class="sab-preview-content-area" id="sab-preview-content"></div>
             </div>
         </div>
 
     </div>
 </div>
 
-<input type="hidden" id="tba-session-id" value="">
+<input type="hidden" id="sab-session-id" value="">
