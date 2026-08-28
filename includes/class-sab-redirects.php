@@ -1,0 +1,226 @@
+<?php
+/**
+ * Redirect Manager & 404 Error Log Tracker Engine for Soniji Auto Blogging
+ * Handles 301/302/307 Redirect Rules, Auto 404 Log Capture with Image/Link Filters & 1-Click 301 Conversion.
+ */
+
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+class SAB_Redirects {
+
+    public static function init() {
+        self::create_tables();
+        add_action( 'template_redirect', [ __CLASS__, 'handle_frontend_redirects_and_404s' ], 1 );
+        add_action( 'admin_post_sab_save_redirect_rule', [ __CLASS__, 'handle_save_redirect_rule' ] );
+        add_action( 'admin_post_sab_delete_redirect_rule', [ __CLASS__, 'handle_delete_redirect_rule' ] );
+        add_action( 'admin_post_sab_convert_404_to_301', [ __CLASS__, 'handle_convert_404_to_301' ] );
+        add_action( 'admin_post_sab_clear_404_logs', [ __CLASS__, 'handle_clear_404_logs' ] );
+        add_action( 'admin_post_sab_save_404_redirect_settings', [ __CLASS__, 'handle_save_404_redirect_settings' ] );
+    }
+
+    public static function create_tables() {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $charset_collate = $wpdb->get_charset_collate();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table_redirects = $wpdb->prefix . 'sab_redirects';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table_404s      = $wpdb->prefix . 'sab_404_logs';
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $sql1 = "CREATE TABLE IF NOT EXISTS {$table_redirects} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            source_url varchar(255) NOT NULL,
+            target_url varchar(255) NOT NULL,
+            redirect_type int(3) NOT NULL DEFAULT 301,
+            hit_count bigint(20) NOT NULL DEFAULT 0,
+            status varchar(20) NOT NULL DEFAULT 'active',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY source_url (source_url)
+        ) {$charset_collate};";
+
+        $sql2 = "CREATE TABLE IF NOT EXISTS {$table_404s} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            url varchar(255) NOT NULL,
+            is_image tinyint(1) NOT NULL DEFAULT 0,
+            hit_count bigint(20) NOT NULL DEFAULT 1,
+            user_agent text,
+            last_detected datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY url (url)
+        ) {$charset_collate};";
+
+        dbDelta( $sql1 );
+        dbDelta( $sql2 );
+    }
+
+    public static function handle_frontend_redirects_and_404s() {
+        if ( is_admin() ) return;
+
+        global $wpdb;
+        $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? strtok( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ), '?' ) : '';
+        if ( empty( $request_uri ) ) return;
+
+        $path_clean  = '/' . ltrim( $request_uri, '/' );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table_redir = $wpdb->prefix . 'sab_redirects';
+
+        // 1. Check for Active Redirect Rules
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+        $rule = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}sab_redirects WHERE source_url = %s AND status = 'active' LIMIT 1", $path_clean ) );
+
+        if ( $rule ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+            $wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->prefix}sab_redirects SET hit_count = hit_count + 1 WHERE id = %d", $rule->id ) );
+
+            $code = in_array( (int)$rule->redirect_type, [ 301, 302, 307 ], true ) ? (int)$rule->redirect_type : 301;
+            wp_safe_redirect( $rule->target_url, $code );
+            exit;
+        }
+
+        // 2. Monitor & Capture 404 Errors
+        if ( is_404() ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $table_404s = $wpdb->prefix . 'sab_404_logs';
+            $is_image   = preg_match( '/\.(jpg|jpeg|png|gif|webp|svg|ico|bmp|tiff)$/i', $path_clean ) ? 1 : 0;
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+            $user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( $_SERVER['HTTP_USER_AGENT'] ) : '';
+
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+            $wpdb->query( $wpdb->prepare( "INSERT INTO {$wpdb->prefix}sab_404_logs (url, is_image, hit_count, user_agent, last_detected) VALUES (%s, %d, 1, %s, %s) ON DUPLICATE KEY UPDATE hit_count = hit_count + 1, last_detected = %s", $path_clean, $is_image, $user_agent, current_time( 'mysql' ), current_time( 'mysql' ) ) );
+
+            // Auto-redirect 404 pages to homepage if toggle switch is enabled
+            if ( get_option( 'sab_redirect_404_to_home', '0' ) === '1' ) {
+                wp_safe_redirect( home_url( '/' ), 301 );
+                exit;
+            }
+        }
+    }
+
+    public static function handle_save_404_redirect_settings() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        check_admin_referer( 'sab_redirect_nonce' );
+
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $enable = isset( $_POST['sab_redirect_404_to_home'] ) ? '1' : '0';
+        update_option( 'sab_redirect_404_to_home', $enable );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=sab-redirects&settings_saved=true' ) );
+        exit;
+    }
+
+    public static function handle_save_redirect_rule() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        check_admin_referer( 'sab_redirect_nonce' );
+
+        global $wpdb;
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $source = sanitize_text_field( $_POST['source_url'] ?? '' );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $target = sanitize_text_field( $_POST['target_url'] ?? '' );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $type   = intval( $_POST['redirect_type'] ?? 301 );
+
+        if ( ! empty( $source ) && ! empty( $target ) ) {
+            $source_clean = '/' . ltrim( wp_parse_url( $source, PHP_URL_PATH ) ?: $source, '/' );
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $table_redir  = $wpdb->prefix . 'sab_redirects';
+
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+            $wpdb->query( $wpdb->prepare( "INSERT INTO {$wpdb->prefix}sab_redirects (source_url, target_url, redirect_type, status) VALUES (%s, %s, %d, 'active') ON DUPLICATE KEY UPDATE target_url = %s, redirect_type = %d, status = 'active'", $source_clean, $target, $type, $target, $type ) );
+        }
+
+        wp_safe_redirect( admin_url( 'admin.php?page=sab-redirects&updated=true' ) );
+        exit;
+    }
+
+    public static function handle_delete_redirect_rule() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        check_admin_referer( 'sab_redirect_nonce' );
+
+        global $wpdb;
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $id = intval( $_POST['rule_id'] ?? 0 );
+        if ( $id > 0 ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $table_redir = $wpdb->prefix . 'sab_redirects';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $wpdb->delete( $table_redir, [ 'id' => $id ], [ '%d' ] );
+        }
+
+        wp_safe_redirect( admin_url( 'admin.php?page=sab-redirects&deleted=true' ) );
+        exit;
+    }
+
+    public static function handle_convert_404_to_301() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        check_admin_referer( 'sab_redirect_nonce' );
+
+        global $wpdb;
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $source = sanitize_text_field( $_POST['source_url'] ?? '' );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+        $target = sanitize_text_field( $_POST['target_url'] ?? '' );
+
+        if ( ! empty( $source ) && ! empty( $target ) ) {
+            $source_clean = '/' . ltrim( wp_parse_url( $source, PHP_URL_PATH ) ?: $source, '/' );
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $table_redir  = $wpdb->prefix . 'sab_redirects';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $table_404s   = $wpdb->prefix . 'sab_404_logs';
+
+            // Insert into redirects
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+            $wpdb->query( $wpdb->prepare( "INSERT INTO {$wpdb->prefix}sab_redirects (source_url, target_url, redirect_type, status) VALUES (%s, %s, 301, 'active') ON DUPLICATE KEY UPDATE target_url = %s, status = 'active'", $source_clean, $target, $target ) );
+
+            // Delete from 404 log
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $wpdb->delete( $table_404s, [ 'url' => $source_clean ], [ '%s' ] );
+        }
+
+        wp_safe_redirect( admin_url( 'admin.php?page=sab-redirects&converted=true' ) );
+        exit;
+    }
+
+    public static function handle_clear_404_logs() {
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        check_admin_referer( 'sab_redirect_nonce' );
+
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table_404s = $wpdb->prefix . 'sab_404_logs';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $wpdb->query( "TRUNCATE TABLE {$table_404s}" );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=sab-redirects&logs_cleared=true' ) );
+        exit;
+    }
+
+    public static function get_redirect_rules() {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table = $wpdb->prefix . 'sab_redirects';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        return $wpdb->get_results( "SELECT * FROM {$table} ORDER BY id DESC LIMIT 200" );
+    }
+
+    public static function get_404_logs( $filter = 'all' ) {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $table = $wpdb->prefix . 'sab_404_logs';
+
+        if ( $filter === 'images' ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            return $wpdb->get_results( "SELECT * FROM {$table} WHERE is_image = 1 ORDER BY hit_count DESC LIMIT 200" );
+        } elseif ( $filter === 'links' ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            return $wpdb->get_results( "SELECT * FROM {$table} WHERE is_image = 0 ORDER BY hit_count DESC LIMIT 200" );
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        return $wpdb->get_results( "SELECT * FROM {$table} ORDER BY hit_count DESC LIMIT 200" );
+    }
+}
